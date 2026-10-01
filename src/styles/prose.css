@@ -1,0 +1,283 @@
+/*
+ * Long-form article typography. Uses logical properties only
+ * (margin-inline, padding-inline-start …) so RTL and LTR share one stylesheet.
+ */
+.prose {
+  --flow: 1.15em;
+  counter-reset: h2;
+  font-size: 1.0625rem;
+  line-height: 1.85;
+  color: var(--ink-2);
+  max-width: 46rem;
+  overflow-wrap: break-word;
+}
+
+.prose:lang(en) {
+  font-size: 1.03rem;
+  line-height: 1.78;
+}
+
+/* Persian text needs more leading than Latin and reads best slightly larger. */
+.prose:lang(fa) {
+  font-size: 1.075rem;
+  line-height: 2;
+  text-align: start;
+}
+
+.prose:lang(fa) :is(h2, h3, h4) {
+  line-height: 1.6;
+}
+
+.prose:lang(fa) :not(pre) > code {
+  font-size: 0.82em;
+}
+
+.prose > * + * {
+  margin-block-start: var(--flow);
+}
+
+.prose h2,
+.prose h3,
+.prose h4 {
+  color: var(--ink);
+  font-weight: 700;
+  line-height: 1.35;
+  scroll-margin-top: 5.5rem;
+  text-wrap: balance;
+}
+
+/* Section headings carry a numbered badge (matches the TOC). */
+.prose h2 {
+  font-size: 1.45rem;
+  font-weight: 650;
+  margin-block-start: 3.25rem;
+  letter-spacing: -0.012em;
+  counter-increment: h2;
+}
+
+.prose h2::before {
+  content: counter(h2);
+  position: relative;
+  top: -0.17em;
+  margin-inline-end: 0.6rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.45rem;
+  height: 1.45rem;
+  padding-inline: 0.3rem;
+  border-radius: 999px;
+  background: var(--strong);
+  color: var(--strong-ink);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.prose h3 {
+  padding-inline-start: 0.85rem;
+  border-inline-start: 2px solid var(--line-strong);
+}
+
+.prose h3 {
+  font-size: 1.18rem;
+  margin-block-start: 2.25rem;
+}
+
+.prose h4 {
+  font-size: 1.05rem;
+  margin-block-start: 1.75rem;
+}
+
+.prose h2 + *,
+.prose h3 + *,
+.prose h4 + * {
+  margin-block-start: 0.75em;
+}
+
+.prose strong {
+  color: var(--ink);
+  font-weight: 650;
+}
+
+.prose a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.prose ul,
+.prose ol {
+  padding-inline-start: 1.4em;
+}
+
+.prose ul {
+  list-style: disc;
+}
+
+.prose ol {
+  list-style: decimal;
+}
+
+.prose li + li {
+  margin-block-start: 0.35em;
+}
+
+.prose li::marker {
+  color: var(--muted);
+}
+
+.prose blockquote {
+  border: 1px solid var(--line);
+  border-inline-start: 3px solid var(--strong);
+  border-radius: 0.75rem;
+  background: var(--surface-2);
+  padding: 0.85em 1.1em;
+  color: var(--ink);
+}
+
+.prose hr {
+  border: 0;
+  border-block-start: 1px solid var(--line);
+  margin-block: 2.5rem;
+}
+
+/* Inline code */
+.prose :not(pre) > code {
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 0.08em 0.38em;
+  color: var(--ink);
+  white-space: break-spaces;
+}
+
+/* Tables */
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.94em;
+  line-height: 1.6;
+}
+
+.prose th,
+.prose td {
+  border-block-end: 1px solid var(--line);
+  padding: 0.6em 0.8em;
+  text-align: start;
+  vertical-align: top;
+}
+
+.prose thead th {
+  color: var(--muted);
+  font-size: 0.86em;
+  font-weight: 600;
+  background: var(--surface-2);
+  border-block-end-color: var(--line);
+  white-space: nowrap;
+}
+
+.prose tbody td:first-child {
+  color: var(--ink);
+  font-weight: 550;
+}
+
+.prose tbody tr:nth-child(even) {
+  background: color-mix(in srgb, var(--surface-2) 45%, transparent);
+}
+
+.prose tbody tr:hover {
+  background: var(--surface-2);
+}
+
+/* Code blocks (Shiki output) */
+.prose pre {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  line-height: 1.75;
+  text-align: left;
+  overflow-x: auto;
+  padding: 1rem 1.15rem;
+  margin: 0;
+  tab-size: 2;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+.prose pre code {
+  font-family: inherit;
+}
+
+/* Line-number gutter: counters on each Shiki line, sticky while scrolling sideways. */
+.prose pre.shiki {
+  --gutter-w: 3.1rem;
+  padding: 0.9rem 1.25rem 0.9rem 0;
+  background: linear-gradient(
+    to right,
+    var(--gutter) var(--gutter-w),
+    var(--line) var(--gutter-w) calc(var(--gutter-w) + 1px),
+    transparent calc(var(--gutter-w) + 1px)
+  );
+}
+
+.prose pre.shiki code {
+  counter-reset: line;
+  display: block;
+  min-width: max-content;
+}
+
+.prose pre.shiki .line::before {
+  counter-increment: line;
+  content: counter(line);
+  position: sticky;
+  left: 0;
+  display: inline-block;
+  width: var(--gutter-w);
+  padding-inline-end: 0.9rem;
+  margin-inline-end: 1.1rem;
+  text-align: right;
+  color: var(--muted);
+  opacity: 0.75;
+  background: var(--gutter);
+  border-right: 1px solid var(--line);
+  user-select: none;
+}
+
+/* Recap checklist: each takeaway gets a check mark instead of a bullet. */
+.prose .recap li {
+  position: relative;
+  padding-inline-start: 1.75rem;
+}
+
+.prose .recap li::before {
+  content: '';
+  position: absolute;
+  inset-inline-start: 0;
+  top: 0.55em;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 999px;
+  background: var(--ok-soft);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ok) 45%, transparent);
+}
+
+.prose .recap li::after {
+  content: '';
+  position: absolute;
+  inset-inline-start: 0.36rem;
+  top: calc(0.55em + 0.22rem);
+  width: 0.28rem;
+  height: 0.5rem;
+  border: solid var(--ok);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+/* Steps: paragraphs inside a step sit tighter than in the article flow. */
+.prose .steps p + p {
+  margin-block-start: 0.6em;
+}
