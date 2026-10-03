@@ -1,0 +1,22 @@
+```js predict
+console.log(1);
+setTimeout(() => console.log(2));
+Promise.resolve().then(() => console.log(3));
+queueMicrotask(() => console.log(4));
+(async () => {
+  console.log(5);
+  await null;
+  console.log(6);
+})();
+console.log(7);
+```
+
+```output
+1
+5
+7
+3
+4
+6
+2
+```
