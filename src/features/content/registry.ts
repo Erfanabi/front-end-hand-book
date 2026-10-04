@@ -217,6 +217,30 @@ export const parts: Part[] = [
 
 /** Chapter descriptions, keyed by `part/slug`. Kept apart so the outline above stays scannable. */
 const descriptions: Record<string, Localized> = {
+  'html/fundamentals': {
+    fa: 'HTML چیست، مرورگر چطور آن را به DOM تبدیل می‌کند، Element و Attribute و Nesting و تفاوت HTML با DOM.',
+    en: 'What HTML is, how the browser turns it into the DOM, elements, attributes, nesting and how HTML differs from the DOM.',
+  },
+  'html/document-and-meta': {
+    fa: 'اسکلت یک سند HTML، Doctype، بخش head، Meta Tagهای ضروری، SEO و Open Graph.',
+    en: 'The skeleton of an HTML document: doctype, the head, essential meta tags, SEO and Open Graph.',
+  },
+  'html/semantic': {
+    fa: 'چرا تگ درست مهم است؛ Landmarkها، ساختار Heading، و انتخاب بین div و تگ‌های معنایی.',
+    en: 'Why the right tag matters: landmarks, heading structure and choosing between div and semantic elements.',
+  },
+  'html/forms': {
+    fa: 'ساختن فرم از صفر: input و انواعش، label، Validation داخلی مرورگر، FormData و ارسال فرم.',
+    en: 'Building forms from scratch: inputs and their types, labels, built-in validation, FormData and submission.',
+  },
+  'html/accessibility': {
+    fa: 'Accessibility یعنی چه، Screen Reader صفحه را چطور می‌خواند، کیبورد، Focus و قواعد ARIA.',
+    en: 'What accessibility means, how screen readers read a page, keyboard support, focus and the rules of ARIA.',
+  },
+  'html/performance': {
+    fa: 'مرورگر منابع را چطور بارگذاری می‌کند؛ async و defer، preload، Lazy Loading و تصاویر Responsive.',
+    en: 'How the browser loads resources: async and defer, preload, lazy loading and responsive images.',
+  },
 }
 
 for (const part of parts) {
