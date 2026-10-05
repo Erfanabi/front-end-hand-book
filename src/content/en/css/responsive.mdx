@@ -1,0 +1,477 @@
+## What is responsive design?
+
+`Responsive design` means one codebase that adapts to **screen size, input type (touch/mouse), user preferences and the space available to each component**. Its three original pillars, introduced by Ethan Marcotte in 2010:
+
+1. **Fluid grids:** layouts in relative units, not fixed pixels.
+2. **Flexible media:** images and video that never exceed their container (`max-width: 100%`).
+3. **Media queries:** styles that change with device characteristics.
+
+Two newer tools often make media queries unnecessary: **container queries** and **intrinsic layout** (Grid with `auto-fit`, `clamp()`).
+
+## Step zero: the viewport meta tag
+
+Before any media query, this line must be in your `<head>`. Without it, none of the techniques in this chapter work properly on mobile:
+
+```html
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+```
+
+**Why?** When the iPhone arrived in 2007, almost every site was designed for desktop (about 980px wide). So those sites wouldn't break on a small screen, mobile browsers pretended the screen was 980px wide and then zoomed the whole page out. The result: tiny text you had to pinch to read. They still do this if you leave out the tag, and `@media (max-width: 600px)` never fires, because as far as the browser is concerned the page is 980px wide.
+
+| Part | Means |
+| --- | --- |
+| `width=device-width` | Make the viewport as wide as the device's real screen (in CSS pixels) |
+| `initial-scale=1` | Don't zoom at the start (1:1) |
+
+<Callout type="mistake">
+Don't add `maximum-scale=1` or `user-scalable=no`. They disable zoom for users with low vision and violate WCAG.
+</Callout>
+
+## Media queries
+
+A **media query** is a condition: "apply these rules only when…". Its structure:
+
+```css
+@media (min-width: 768px) {
+/*      └─ feature: the condition ─┘ */
+  .sidebar { display: block; }  /* applied only while the condition is true */
+}
+```
+
+- The **media feature** in parentheses is what gets checked: width, orientation, input type, user settings.
+- `min-width: 768px` means "the width is **at least** 768px", i.e. 768 or more. `max-width` is the reverse: 768 or less.
+- Combine conditions with `and` (both), a comma (either) or `not`.
+- The newer **range syntax** reads better: `(width >= 768px)` instead of `(min-width: 768px)`.
+
+All the important features:
+
+```css
+@media (min-width: 768px) { ... }
+@media (width >= 768px) and (width < 1024px) { ... }   /* range syntax — Baseline 2023 */
+@media (orientation: landscape) { ... }
+@media (hover: hover) and (pointer: fine) { ... }      /* mouse devices */
+@media (pointer: coarse) { ... }                        /* touch: larger targets */
+@media (prefers-color-scheme: dark) { ... }
+@media (prefers-reduced-motion: reduce) { ... }
+@media (prefers-contrast: more) { ... }
+@media (forced-colors: active) { ... }                  /* Windows high contrast */
+@media print { ... }
+```
+
+A media query asks about the viewport (or the device) — never about an element's size.
+
+### Mobile-first vs desktop-first
+
+| | Mobile-first | Desktop-first |
+| --- | --- | --- |
+| Base styles target | The smallest screen | The largest screen |
+| Media queries | `min-width` (add complexity) | `max-width` (remove complexity) |
+| CSS processed on mobile | Simpler, fewer overrides | Desktop styles applied, then overridden |
+| Mindset | Progressive enhancement | Graceful degradation |
+
+```css
+/* mobile-first */
+.grid { display: grid; gap: 1rem; }                                      /* one column */
+@media (min-width: 640px)  { .grid { grid-template-columns: 1fr 1fr; } }
+@media (min-width: 1024px) { .grid { grid-template-columns: repeat(3, 1fr); } }
+```
+
+Mobile-first is preferred because it forces you to focus on essential content first, and mobile devices process the least overriding CSS.
+
+### Breakpoints
+
+Choose breakpoints based on **content** — where the layout breaks — not device models. Common values (Tailwind): `640`, `768`, `1024`, `1280`, `1536` px.
+
+- Keep breakpoints as tokens/variables in one place.
+- Avoid overlapping breakpoints (`max-width: 768px` and `min-width: 768px` both match at 768px; the range syntax with `<` fixes it).
+
+## Fluid layout
+
+```css
+.container {
+  width: min(100% - 2rem, 72rem);  /* at most 72rem, always 1rem of margin */
+  margin-inline: auto;
+}
+
+img, video { max-width: 100%; height: auto; }
+```
+
+### clamp(), min() and max()
+
+| Function | Does | Example |
+| --- | --- | --- |
+| `min(a, b)` | The smaller | `width: min(600px, 100%)` |
+| `max(a, b)` | The larger | `padding: max(1rem, 3vw)` |
+| `clamp(min, ideal, max)` | ideal, clamped between min and max | `font-size: clamp(1rem, 0.8rem + 1vw, 1.5rem)` |
+
+How is `clamp()` actually calculated? Say `font-size: clamp(1rem, 0.5rem + 2vw, 2rem)` with a 16px root font:
+
+| Screen width | Middle value (`8px + 2vw`) | Result after clamping between 16px and 32px |
+| --- | --- | --- |
+| 320px | 8 + 6.4 = 14.4px | **16px** (below the minimum) |
+| 800px | 8 + 16 = 24px | **24px** (between the limits) |
+| 1400px | 8 + 28 = 36px | **32px** (above the maximum) |
+
+So the font is 16px on phones, grows smoothly as the screen widens, and stops at 32px on very wide screens — without a single media query.
+
+
+## Container queries
+
+**The media query problem:** a card component may sit in a narrow sidebar or a wide main area. The viewport is the same in both cases, so a media query can't tell them apart.
+
+`Container queries` (Baseline 2023) let a component respond to **the size of its container**:
+
+```css
+.card-wrapper {
+  container-type: inline-size;   /* this element is a query container */
+  container-name: card;          /* optional */
+}
+
+.card { display: grid; gap: 1rem; }
+
+@container card (min-width: 420px) {
+  .card { grid-template-columns: 160px 1fr; }   /* horizontal when there's room */
+}
+```
+
+```html live
+<style>
+  .wrap { container-type: inline-size; border: 2px dashed #aaa; padding: 8px; margin-bottom: 10px; resize: horizontal; overflow: auto; }
+  .card { display: grid; gap: 8px; background: #e9edfc; padding: 10px; border-radius: 8px; }
+  .card .img { background: #2a4bd7; min-height: 60px; border-radius: 6px; }
+  @container (min-width: 380px) { .card { grid-template-columns: 120px 1fr; } }
+</style>
+<div class="wrap" style="width: 300px">
+  <div class="card"><div class="img"></div><div>Narrow container: stacked layout. Drag the corner to widen it!</div></div>
+</div>
+<div class="wrap" style="width: 95%">
+  <div class="card"><div class="img"></div><div>Wide container: side-by-side — same component, no media query.</div></div>
+</div>
+```
+
+| | Media query | Container query |
+| --- | --- | --- |
+| Asks about | Viewport / device | The nearest container ancestor |
+| Best for | Overall page layout | Reusable components |
+| Requires | — | `container-type` on an ancestor |
+| Special units | `vw`, `vh` | `cqi`, `cqb`, `cqw`, `cqh` (percent of the container) |
+
+Note: `container-type: inline-size` applies inline-size containment, meaning **the container's width can no longer come from its content**. If it has no explicit width or width from its parent, it collapses to zero.
+
+## Responsive typography
+
+```css
+:root {
+  /* linear from 16px at 320px to 20px at 1280px */
+  font-size: clamp(1rem, 0.917rem + 0.417vw, 1.25rem);
+}
+
+h1 { font-size: clamp(2rem, 1.5rem + 2.5vw, 3.5rem); }
+```
+
+<Callout type="warning">
+Never write `font-size: 4vw` on its own. The text won't grow with browser zoom (vw stays constant), failing WCAG 1.4.4. Combining `rem + vw` inside `clamp()` respects both zoom and the user's font-size setting.
+</Callout>
+
+## CSS units
+
+### Absolute units
+
+| Unit | Meaning |
+| --- | --- |
+| `px` | CSS pixel — the reference unit; not necessarily one physical pixel (DPR) |
+| `pt`, `cm`, `in` | For print |
+
+On a screen with `devicePixelRatio = 3`, one CSS pixel is 3×3 physical pixels.
+
+### Font-relative units
+
+| Unit | Relative to | Note |
+| --- | --- | --- |
+| `em` | The element's own `font-size` (for font-size itself: the parent's) | **Compounds** when nested |
+| `rem` | The root (`html`) `font-size` | Predictable; scales with the user's font setting |
+| `ch` | Width of "0" in the current font | `max-width: 65ch` for readable line length |
+| `ex` | The font's x-height | Rare |
+| `lh` / `rlh` | The element's / root's `line-height` | Rhythmic spacing |
+
+The compounding problem with `em`:
+
+```css
+li { font-size: 1.2em; }
+/* li in li in li: 1.2 × 1.2 × 1.2 = 1.728× */
+```
+
+Rule of thumb:
+
+- `rem` for `font-size` and general spacing (respects zoom and user settings).
+- `em` for padding that should scale with the component's own font (buttons, badges).
+- `px` for borders and fine shadows.
+
+<Callout type="interview">
+Why not set `font-size` in `px`? A user who changed their browser's default font from 16px to 24px still sees 16px text with `px`. `rem` respects that setting. (Page zoom works in both cases.)
+</Callout>
+
+### Percentages
+
+A percentage is always relative to **something**, and that something differs per property:
+
+| Property | % relative to |
+| --- | --- |
+| `width`, `padding`, `margin` (**even vertical!**) | The containing block's **width** |
+| `height` | The containing block's height (if explicit; otherwise auto) |
+| `top`/`bottom` | The containing block's height |
+| `font-size` | The parent's font-size |
+| `line-height` | The element's own font-size |
+| `transform: translate()` | The **element's own** size |
+
+That's why `padding-top: 56.25%` used to create a 16:9 box; today `aspect-ratio: 16 / 9` replaces it.
+
+### Viewport units
+
+| Unit | Meaning |
+| --- | --- |
+| `vw` / `vh` | 1% of viewport width / height |
+| `vmin` / `vmax` | 1% of the smaller / larger side |
+| `svh` / `svw` | **Small** viewport: browser UI (address bar) **fully shown** |
+| `lvh` / `lvw` | **Large** viewport: browser UI **collapsed** |
+| `dvh` / `dvw` | **Dynamic** viewport: moves between svh and lvh in real time |
+
+**The `100vh` problem on mobile:** mobile browsers define `vh` as the large viewport. While the address bar is visible, `100vh` is taller than the screen and a bottom button hides under the browser UI.
+
+```text
+address bar shown             address bar collapsed
+┌──────────────┐  ┐           ┌──────────────┐ ┐
+│ address bar  │  │           │              │ │
+├──────────────┤ ┐│           │              │ │
+│              │ ││           │              │ │
+│   100svh     │ ││ 100lvh    │   100lvh =   │ │
+│              │ ││ (=100vh)  │   100svh +   │ │
+│              │ ┘│           │   bar        │ │
+└──────────────┘  │           │              │ │
+   (hidden) ...   ┘           └──────────────┘ ┘
+```
+
+```css
+.hero { min-height: 100svh; }   /* always fully visible; stable */
+.app  { height: 100dvh; }       /* always exactly the current space; changes while scrolling */
+```
+
+`dvh` changes as the bar collapses during scrolling and can cause layout shifts; `svh` is usually safer for heroes, `dvh` for full-screen app shells.
+
+### fr
+
+Only meaningful in Grid; a share of the remaining space (see [CSS Grid](/css/grid)).
+
+## CSS variables (custom properties)
+
+```css
+:root {
+  --color-accent: #2a4bd7;
+  --space-md: 1rem;
+  --radius: 8px;
+}
+
+.button {
+  background: var(--color-accent);
+  padding: var(--space-md);
+  border-radius: var(--radius);
+}
+```
+
+### How they differ from Sass variables
+
+| | Sass `$var` | CSS `--var` |
+| --- | --- | --- |
+| Resolved | At compile time — replaced in the output | At **runtime** in the browser |
+| Change with JavaScript | No | `el.style.setProperty('--x', '10px')` |
+| Scope | Lexical, within the Sass file | **Cascade and DOM**; overridable on any element |
+| Inheritance | No | Yes (inherited by default) |
+| Media queries | Fixed | Can change inside a media query |
+
+### Inheritance and scope
+
+Custom properties inherit like `color`, so you can override them in any subtree:
+
+```css
+.button { background: var(--btn-bg, var(--color-accent)); }
+.danger-zone { --btn-bg: #c92a2a; }  /* every button in this section turns red */
+```
+
+### Fallbacks
+
+```css
+color: var(--text, #222);                     /* if --text isn't defined */
+color: var(--text, var(--fallback, black));   /* nested fallback */
+```
+
+Subtle point: if the variable is **defined but invalid** for the property (say `--size: red` used for `width`), the fallback is **not** used; the declaration becomes "invalid at computed-value time" and the property falls back to its inherited or `initial` value.
+
+### Theming
+
+```css
+:root {
+  --bg: #ffffff;
+  --text: #161a22;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #0e1219; --text: #e8ecf2; }
+}
+
+[data-theme="dark"] { --bg: #0e1219; --text: #e8ecf2; } /* user's manual choice */
+
+body { background: var(--bg); color: var(--text); }
+```
+
+```html live
+<style>
+  .theme { --bg: #fff; --fg: #161a22; --accent: #2a4bd7; background: var(--bg); color: var(--fg); padding: 16px; border-radius: 10px; border: 1px solid #ddd; }
+  .theme.dark { --bg: #0e1219; --fg: #e8ecf2; --accent: #8197ff; }
+  .theme button { background: var(--accent); color: var(--bg); border: 0; padding: 8px 14px; border-radius: 6px; }
+</style>
+<div class="theme" id="t">
+  <p>Only the variables change; no new selector was written for the button.</p>
+  <button onclick="document.getElementById('t').classList.toggle('dark')">Toggle theme</button>
+</div>
+```
+
+### @property
+
+`@property` (Baseline 2024) gives a custom property a **type**, so the browser can animate it and you control inheritance:
+
+```css
+@property --angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+.spinner {
+  background: conic-gradient(from var(--angle), #2a4bd7, transparent);
+  animation: spin 1s linear infinite;
+}
+@keyframes spin { to { --angle: 360deg; } }
+```
+
+Without `@property`, the browser doesn't know `--angle` is an angle and the gradient jumps instead of animating.
+
+## Common mistakes
+
+- `100vh` for full-height screens on mobile.
+- `font-size` in pure `vw` or `px`.
+- Breakpoints based on specific devices.
+- Media queries for a component that should respond to its container.
+- Expecting the fallback when a variable is defined with an invalid value.
+- `container-type: size` without an explicit height (the container collapses to zero height).
+- Images without `max-width: 100%`.
+
+## Interview questions
+
+<QA q="What's the difference between `em` and `rem`, and where do you use each?" level="junior" n={1}>
+<Answer>
+
+`rem` is relative to the root (`html`) `font-size`; `em` to the element's own `font-size` (for `font-size` itself, the parent's). `em` compounds when nested. Use `rem` for font sizes and general spacing; `em` for padding and spacing that should scale with the component's own font.
+
+</Answer>
+<Deep>
+
+Inside media queries, `em` and `rem` are both relative to the **browser's default** font size, not `html`. Using `em` in media queries makes breakpoints move with the user's font setting so layouts don't break with larger text.
+
+</Deep>
+<Mistake>
+
+Setting `html { font-size: 62.5% }` so that 1rem = 10px, then forgetting that third-party libraries' default text becomes tiny.
+
+</Mistake>
+<FollowUp>
+
+Why does `font-size: 16px` on html override the user's font preference?
+
+</FollowUp>
+</QA>
+
+<QA q="What's the problem with `100vh` on mobile, and how do `svh`, `lvh` and `dvh` solve it?" level="mid" n={2}>
+<Answer>
+
+On mobile `vh` equals the large viewport (address bar collapsed). While the bar is visible, `100vh` is taller than the visible area and bottom content is hidden. `svh` gives the small size (bar visible), `lvh` the large size, and `dvh` the current size.
+
+</Answer>
+<Deep>
+
+`dvh` updates with every bar change and can trigger layout and repaint during scrolling; for large elements `svh` is more stable. The on-screen keyboard doesn't change these units by default (the visual viewport changes); `interactive-widget=resizes-content` in the viewport meta controls that.
+
+</Deep>
+<Mistake>
+
+Computing `window.innerHeight` in JavaScript and writing it to a CSS variable — the old workaround that's no longer needed.
+
+</Mistake>
+<FollowUp>
+
+What's the difference between the visual viewport and the layout viewport?
+
+</FollowUp>
+</QA>
+
+<QA q="What problem do container queries solve that media queries can't?" level="mid" n={3}>
+<Answer>
+
+Media queries respond to the viewport; container queries respond to the component's container. A card in a narrow sidebar and in a wide main column renders under the same viewport; only a container query can adapt the card to its real space. That's essential for design system components whose placement is unknown.
+
+</Answer>
+<Deep>
+
+`container-type: inline-size` on the ancestor applies size containment on the inline axis to avoid an infinite loop (the container's size can't depend on content that depends on the container's size). Style queries (`@container style(--variant: compact)`) also allow querying custom property values.
+
+</Deep>
+<Mistake>
+
+Putting `container-type` on the component itself instead of its ancestor; an element can't query itself.
+
+</Mistake>
+<FollowUp>
+
+What are the `cqi` and `cqw` units for?
+
+</FollowUp>
+</QA>
+
+<QA q="How do CSS variables differ from Sass variables?" level="mid" n={4}>
+<Answer>
+
+A Sass variable is substituted and gone at compile time; a CSS variable exists at runtime, takes part in the cascade, is inherited, can be overridden in any subtree and changed from JavaScript. That makes it ideal for dynamic theming.
+
+</Answer>
+<Deep>
+
+Changing a custom property on `:root` can trigger style recalculation for the whole document; for high-frequency updates (e.g. mouse position) set the variable on the closest possible element. `@property` with `inherits: false` turns off inheritance and reduces the cost.
+
+</Deep>
+<Mistake>
+
+Thinking the fallback in `var(--x, fallback)` is used when `--x` holds an invalid value.
+
+</Mistake>
+<FollowUp>
+
+How do you implement a theme switcher without a flash of the wrong theme on load? (An inline script in head that runs before first paint — like this site.)
+
+</FollowUp>
+</QA>
+
+## Recap
+
+<Recap>
+
+- Without `<meta name="viewport" content="width=device-width, initial-scale=1">` mobile browsers assume a 980px page and media queries don't fire.
+- A media query is a condition on the viewport or device; mobile-first uses `min-width` and goes from simple to complex.
+- Put breakpoints where the content breaks, not at phone models.
+- `min()`, `max()` and `clamp()` create fluid sizes without media queries.
+- Container queries let a component respond to **its own container's** size; they need `container-type` on an ancestor.
+- `rem` for font sizes (respects user settings), `em` for spacing that scales with the component's font, `px` for borders.
+- Percentage padding and margin are relative to the parent's **width**; percentage `translate` to the element itself.
+- On mobile, use `100svh` (stable) or `100dvh` (exact but changing) instead of `100vh`.
+- CSS variables resolve at runtime, inherit, and can be changed from JavaScript; `@property` gives them a type so they can animate.
+
+</Recap>

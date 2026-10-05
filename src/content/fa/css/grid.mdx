@@ -1,0 +1,402 @@
+## CSS Grid چیست و چه فرقی با Flexbox دارد؟
+
+یک صفحه روزنامه را تصور کنید: سرتیتر در کل عرض بالا، ستون کناری باریک، متن اصلی پهن، و فوتر در پایین. یا یک گالری عکس که در هر ردیف دقیقاً سه عکس هم‌اندازه دارد و ستون‌هایش زیر هم تراز است. این‌ها چیدمان‌های **دوبعدی** هستند: هم ردیف مهم است و هم ستون.
+
+Flexbox یک‌بعدی است. می‌تواند آیتم‌ها را در یک ردیف بچیند و wrap کند، ولی ردیف دوم هیچ خبری از ستون‌های ردیف اول ندارد و آیتم‌ها زیر هم تراز نمی‌شوند. **CSS Grid** برای همین ساخته شد: یک **شبکه** از سطرها و ستون‌ها تعریف می‌کنید و آیتم‌ها را در خانه‌های آن می‌گذارید.
+
+یک فرق فکری مهم هم دارند:
+
+- **Flexbox از محتوا شروع می‌کند (Content-out):** اندازه آیتم‌ها از محتوایشان می‌آید و Flexbox فقط فضای باقی‌مانده را تقسیم می‌کند.
+- **Grid از ساختار شروع می‌کند (Layout-in):** اول قالب (ستون‌ها و سطرها) را تعریف می‌کنید و بعد محتوا داخلش قرار می‌گیرد.
+
+## اولین Grid
+
+```html live
+<style>
+  .gallery {
+    display: grid;                          /* ۱. این Element حالا Grid Container است */
+    grid-template-columns: 1fr 1fr 1fr;     /* ۲. سه ستون هم‌عرض */
+    gap: 10px;                              /* ۳. فاصله بین خانه‌ها */
+    font: 600 14px system-ui;
+  }
+  .gallery div { background: #2459e0; color: white; padding: 18px; border-radius: 8px; text-align: center; }
+</style>
+<div class="gallery">
+  <div>1</div><div>2</div><div>3</div>
+  <div>4</div><div>5</div><div>6</div>
+  <div>7</div>
+</div>
+```
+
+با سه خط یک گالری سه‌ستونه ساختیم. چه اتفاقی افتاد؟
+
+<Steps>
+<Step title="Container شبکه را تعریف کرد">
+`grid-template-columns: 1fr 1fr 1fr` سه **ستون** تعریف کرد. واحد `fr` یعنی «یک سهم از فضای خالی» (پایین‌تر کامل توضیح داده می‌شود)، پس سه ستون مساوی شدند.
+</Step>
+<Step title="فرزندان مستقیم Grid Item شدند">
+مثل Flexbox فقط فرزندان مستقیم تحت تأثیرند. هر کدام یک خانه می‌گیرند.
+</Step>
+<Step title="آیتم‌ها خودکار در خانه‌ها قرار گرفتند">
+ما هیچ جایی نگفتیم کدام آیتم کجا برود. الگوریتم **Auto-placement** آیتم‌ها را به ترتیب HTML، ردیف به ردیف، در اولین خانه خالی گذاشت.
+</Step>
+<Step title="سطرها خودکار ساخته شدند">
+هیچ سطری تعریف نکردیم. مرورگر برای جا دادن ۷ آیتم در ۳ ستون، خودش سه سطر ساخت (به این‌ها **Implicit Track** می‌گویند). آیتم ۷ در ستون اول سطر سوم نشست و ستون‌هایش با بالایی‌ها **تراز** است؛ کاری که Flexbox نمی‌تواند.
+</Step>
+</Steps>
+
+## واژگان Grid
+
+```text
+        column line 1   line 2        line 3        line 4
+              │          │             │             │
+   row line 1 ┼──────────┼─────────────┼─────────────┼
+              │  cell    │             │             │   ← row track
+   row line 2 ┼──────────┼─────────────┼─────────────┼
+              │          │   grid area (2×2)         │
+   row line 3 ┼──────────┤                           │
+              │          │                           │
+   row line 4 ┼──────────┴─────────────┴─────────────┼
+                         ↑ gap (gutter)
+```
+
+| اصطلاح | معنا |
+| --- | --- |
+| Grid Container | Element با `display: grid` |
+| Grid Item | فرزند **مستقیم** Container |
+| Grid Line | خطوط تقسیم‌کننده؛ از ۱ شماره‌گذاری می‌شوند (و از انتها با اعداد منفی: `-1` آخرین خط) |
+| Track | فضای بین دو خط مجاور: یک سطر یا ستون |
+| Cell | تقاطع یک سطر و یک ستون |
+| Area | مستطیلی از یک یا چند Cell |
+| Gap | فاصله بین Trackها |
+
+## Playground
+
+<GridPlayground />
+
+## تعریف Trackها
+
+```css
+.grid {
+  display: grid;
+  grid-template-columns: 200px 1fr 2fr;   /* سه ستون */
+  grid-template-rows: auto 1fr auto;      /* سه سطر */
+  gap: 1rem 2rem;                         /* row-gap column-gap */
+}
+```
+
+### واحد fr
+
+`fr (fraction — کسر)` سهمی از **فضای باقی‌مانده** پس از کسر Trackهای ثابت و gap است.
+
+مثال: Container 1000px، `grid-template-columns: 200px 1fr 2fr; column-gap: 20px`
+
+- فضای ثابت: 200 + 2×20 = 240px
+- فضای باقی‌مانده: 760px، تقسیم بر 3 سهم → هر fr ≈ 253.3px
+- ستون‌ها: 200px، 253.3px، 506.7px
+
+`fr` با درصد فرق دارد: `33%` از کل Container است و gap را در نظر نمی‌گیرد، پس `repeat(3, 33.33%)` با gap سرریز می‌کند ولی `repeat(3, 1fr)` نه.
+
+<Callout type="mistake">
+`1fr` در واقع `minmax(auto, 1fr)` است؛ یعنی Track **کوچک‌تر از Min-content محتوایش نمی‌شود**. یک تصویر یا کلمه طولانی ستون را پهن می‌کند و ستون‌ها نامساوی می‌شوند. برای ستون‌های کاملاً مساوی: `repeat(3, minmax(0, 1fr))`.
+</Callout>
+
+### repeat()
+
+```css
+grid-template-columns: repeat(4, 1fr);            /* 1fr 1fr 1fr 1fr */
+grid-template-columns: repeat(2, 100px 1fr);      /* 100px 1fr 100px 1fr */
+grid-template-columns: 250px repeat(3, 1fr);
+```
+
+### minmax()
+
+`minmax(min, max)` اندازه Track را بین دو مقدار محدود می‌کند:
+
+```css
+grid-template-columns: minmax(200px, 300px) 1fr;
+grid-template-rows: minmax(100px, auto);  /* حداقل 100px، با محتوا رشد می‌کند */
+```
+
+### Keywordهای اندازه
+
+| مقدار | معنا |
+| --- | --- |
+| `auto` | بر اساس محتوا، ولی فضای اضافه را هم می‌گیرد (اگر fr نباشد) |
+| `min-content` | کوچک‌ترین اندازه بدون سرریز (طولانی‌ترین کلمه) |
+| `max-content` | اندازه محتوا بدون شکستن خط |
+| `fit-content(300px)` | مثل max-content ولی حداکثر 300px |
+
+## auto-fill در مقابل auto-fit
+
+الگوی معروف **Responsive Grid بدون Media Query**:
+
+```css
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1rem;
+}
+```
+
+مرورگر تا جایی که جا دارد ستون‌های حداقل 220px می‌سازد. تفاوت `auto-fill` و `auto-fit` فقط وقتی **آیتم‌ها کمتر از ستون‌های ممکن** باشند دیده می‌شود:
+
+| | `auto-fill` | `auto-fit` |
+| --- | --- | --- |
+| Trackهای خالی | **نگه داشته می‌شوند** (فضای خالی می‌ماند) | **Collapse** می‌شوند (به صفر) |
+| نتیجه با ۲ آیتم در فضای ۵ ستون | ۲ آیتم 220px-ish در ابتدا | ۲ آیتم که کل عرض را پر می‌کنند |
+| کاربرد | Grid با ستون‌های یکنواخت (گالری) | آیتم‌ها کل فضا را بگیرند |
+
+```html live
+<style>
+  .g { display: grid; gap: 8px; margin-bottom: 12px; padding: 6px; border: 2px dashed #aaa; }
+  .g > div { background: #2a4bd7; color: #fff; padding: 12px; border-radius: 6px; text-align: center; }
+  .fill { grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); }
+  .fit  { grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); }
+</style>
+<b>auto-fill</b>
+<div class="g fill"><div>1</div><div>2</div></div>
+<b>auto-fit</b>
+<div class="g fit"><div>1</div><div>2</div></div>
+```
+
+`min(220px, 100%)` در `minmax` از سرریز در صفحه‌های بسیار باریک جلوگیری می‌کند:
+
+```css
+grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+```
+
+## قرار دادن آیتم‌ها
+
+Auto-placement برای خیلی از کارها کافی است، ولی گاهی می‌خواهید خودتان بگویید یک آیتم کجا بنشیند یا چند خانه بگیرد. برای این کار باید با **خطوط** Grid فکر کنید، نه خانه‌ها.
+
+### بر اساس شماره خط
+
+یک Grid سه‌ستونه **چهار** خط عمودی دارد (۱ تا ۴)، چون خط‌ها **دور** ستون‌ها هستند. از انتها هم با عدد منفی شمرده می‌شوند: `-1` آخرین خط است. `grid-column: شروع / پایان` یعنی آیتم از کدام خط شروع و به کدام خط ختم شود:
+
+```text
+خط:   1        2        3        4
+      │ ستون ۱ │ ستون ۲ │ ستون ۳ │
+     -4       -3       -2       -1
+
+grid-column: 1 / 3    → از خط ۱ تا خط ۳ = ستون ۱ و ۲
+grid-column: 1 / -1   → از اولین تا آخرین خط = تمام عرض
+grid-column: span 2   → دو ستون، از هر جایی که Auto-placement بگذارد
+```
+
+```html live
+<style>
+  .lines { display: grid; grid-template-columns: repeat(3, 1fr); grid-auto-rows: 50px; gap: 6px; font: 600 13px system-ui; }
+  .lines div { background: #e9edfc; border: 1px solid #2459e0; border-radius: 6px; display: grid; place-items: center; }
+  .wide { grid-column: 1 / -1; background: #2459e0 !important; color: white; }
+  .tall { grid-row: span 2; background: #ffd8a8 !important; }
+</style>
+<div class="lines">
+  <div class="wide">grid-column: 1 / -1</div>
+  <div class="tall">grid-row: span 2</div>
+  <div>b</div><div>c</div><div>d</div><div>e</div>
+</div>
+
+```css
+.header  { grid-column: 1 / -1; }       /* از خط اول تا آخرین خط: تمام عرض */
+.sidebar { grid-column: 1 / 2; grid-row: 2 / 4; }
+.feature { grid-column: span 2; }       /* دو ستون از جایی که Auto-placement قرار می‌دهد */
+.box     { grid-area: 2 / 1 / 4 / 3; }  /* row-start / col-start / row-end / col-end */
+```
+
+### grid-template-areas
+
+خواناترین روش: Layout را به شکل ASCII Art رسم کنید.
+
+```css
+.page {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  grid-template-rows: auto 1fr auto;
+  grid-template-areas:
+    "header  header"
+    "sidebar main"
+    "footer  footer";
+  min-height: 100dvh;
+}
+.page > header { grid-area: header; }
+.page > nav    { grid-area: sidebar; }
+.page > main   { grid-area: main; }
+.page > footer { grid-area: footer; }
+
+@media (max-width: 768px) {
+  .page {
+    grid-template-columns: 1fr;
+    grid-template-areas: "header" "main" "sidebar" "footer";
+  }
+}
+```
+
+قوانین: هر Area باید **مستطیل** باشد؛ `.` یک Cell خالی است؛ هر سطر رشته باید تعداد ستون یکسان داشته باشد.
+
+```html live
+<style>
+  .page { display: grid; gap: 6px; grid-template-columns: 110px 1fr; grid-template-rows: auto 120px auto;
+          grid-template-areas: "header header" "sidebar main" "footer footer"; font: 14px system-ui; }
+  .page > * { background: #e9edfc; border: 1px solid #2a4bd7; padding: 8px; border-radius: 6px; }
+  header { grid-area: header; } nav { grid-area: sidebar; background: #ffd8a8 !important; }
+  main { grid-area: main; } footer { grid-area: footer; }
+</style>
+<div class="page"><header>header</header><nav>sidebar</nav><main>main</main><footer>footer</footer></div>
+```
+
+## Explicit و Implicit Grid
+
+- **Explicit Grid (صریح):** Trackهایی که با `grid-template-*` تعریف کرده‌اید.
+- **Implicit Grid (ضمنی):** وقتی آیتم‌ها بیشتر از Cellهای تعریف‌شده باشند یا در خطی بیرون از Grid قرار بگیرند، مرورگر خودکار Track اضافه می‌کند.
+
+```css
+.feed {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr); /* Explicit: فقط ستون‌ها */
+  grid-auto-rows: minmax(150px, auto);   /* اندازه سطرهای Implicit */
+  grid-auto-flow: row;                   /* جهت Auto-placement: row | column | dense */
+}
+```
+
+| Property | کنترل |
+| --- | --- |
+| `grid-auto-rows` / `grid-auto-columns` | اندازه Trackهای ضمنی (پیش‌فرض `auto`) |
+| `grid-auto-flow: row` | پر کردن سطر به سطر (پیش‌فرض) |
+| `grid-auto-flow: column` | پر کردن ستون به ستون؛ ستون‌های Implicit می‌سازد |
+| `grid-auto-flow: dense` | پر کردن حفره‌های خالی با آیتم‌های بعدی (ترتیب بصری ≠ DOM — مراقب Accessibility باشید) |
+
+## هم‌ترازی در Grid
+
+| Property | روی | محور |
+| --- | --- | --- |
+| `justify-items` | همه آیتم‌ها داخل Cell | Inline (افقی) |
+| `align-items` | همه آیتم‌ها داخل Cell | Block (عمودی) |
+| `place-items` | Shorthand هر دو | — |
+| `justify-self` / `align-self` | یک آیتم | — |
+| `justify-content` / `align-content` | کل Grid داخل Container (وقتی Grid کوچک‌تر است) | — |
+
+```css
+.center { display: grid; place-items: center; } /* کوتاه‌ترین روش وسط‌چین */
+```
+
+## Subgrid
+
+`subgrid` (Baseline 2023) به یک Grid Item که خودش Grid است اجازه می‌دهد **Trackهای والد را به ارث ببرد**. کاربرد کلاسیک: کارت‌هایی که عنوان، متن و دکمه‌شان در کارت‌های مجاور هم‌تراز باشند:
+
+```css
+.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+.card {
+  display: grid;
+  grid-row: span 3;
+  grid-template-rows: subgrid;   /* سه سطر از والد: عنوان، متن، دکمه */
+}
+```
+
+## Flexbox در مقابل Grid
+
+| معیار | Flexbox | Grid |
+| --- | --- | --- |
+| ابعاد | یک‌بعدی (سطر **یا** ستون) | دوبعدی (سطر **و** ستون) |
+| رویکرد | Content-out: محتوا اندازه را تعیین می‌کند | Layout-in: ساختار از قبل تعریف می‌شود |
+| هم‌ترازی بین سطرها | خیر؛ هر خط مستقل است | بله؛ ستون‌ها در همه سطرها هم‌ترازند |
+| همپوشانی آیتم‌ها | دشوار | آسان (قرار دادن چند آیتم در یک Cell) |
+| مناسب برای | Navbar، Toolbar، لیست تگ‌ها، چیدمان داخل Component | Layout صفحه، گالری، Dashboard، فرم‌های دوستونه |
+| Responsive بدون Media Query | با `flex-wrap` (آخرین سطر ناهماهنگ) | با `auto-fit/minmax` (منظم) |
+
+قانون عملی: **اگر فقط در یک جهت هم‌ترازی لازم دارید، Flexbox. اگر سطرها و ستون‌ها باید با هم هم‌تراز باشند، Grid.** در عمل هر دو با هم استفاده می‌شوند: Grid برای اسکلت صفحه، Flexbox برای داخل Componentها.
+
+## اشتباهات رایج
+
+- استفاده از `1fr` و تعجب از ستون‌های نامساوی (`minmax(0, 1fr)`).
+- `repeat(3, 33.33%)` با gap و سرریز.
+- استفاده از `auto-fill` وقتی `auto-fit` لازم است (یا برعکس).
+- Areaهای غیرمستطیلی در `grid-template-areas`.
+- تغییر ترتیب بصری با `order`، `dense` یا Area بدون توجه به ترتیب DOM.
+- فراموش کردن اینکه فقط **فرزندان مستقیم** Grid Item هستند (راه‌حل: `subgrid` یا `display: contents`).
+
+## سوالات مصاحبه
+
+<QA q="Flexbox یا Grid؟ چه زمانی از هرکدام استفاده می‌کنید؟" level="junior" n={1}>
+<Answer>
+
+Flexbox برای چیدمان یک‌بعدی که محتوا اندازه را تعیین می‌کند (Navbar، دکمه‌ها، تگ‌ها). Grid برای چیدمان دوبعدی که سطرها و ستون‌ها باید هم‌تراز باشند (Layout صفحه، گالری، Dashboard).
+
+</Answer>
+<Deep>
+
+تفاوت بنیادی در جهت کنترل است: Flexbox از محتوا به بیرون (هر خط مستقل محاسبه می‌شود) و Grid از ساختار به داخل (Trackها برای همه آیتم‌ها مشترک‌اند). برای یک لیست کارت Responsive، Grid با `auto-fit` ستون‌های منظم می‌سازد، در حالی که Flexbox با `wrap` آخرین سطر را ممکن است کشیده و نامنظم کند.
+
+</Deep>
+<Mistake>
+
+گفتن اینکه «Grid جایگزین Flexbox است». هرکدام برای مسئله خودش بهترین است.
+
+</Mistake>
+<FollowUp>
+
+چطور با Grid یک Layout «Holy Grail» می‌سازید؟
+
+</FollowUp>
+</QA>
+
+<QA q="تفاوت `auto-fill` و `auto-fit` چیست؟" level="mid" n={2}>
+<Answer>
+
+هر دو تا جایی که جا باشد Track می‌سازند. وقتی آیتم‌ها کمتر از Trackها هستند، `auto-fill` Trackهای خالی را نگه می‌دارد (آیتم‌ها اندازه حداقل دارند و فضای خالی باقی می‌ماند)، اما `auto-fit` Trackهای خالی را صفر می‌کند و `1fr` آیتم‌ها را کش می‌دهد تا کل عرض پر شود.
+
+</Answer>
+<Deep>
+
+تفاوت فقط با `minmax(x, 1fr)` و تعداد آیتم کم قابل مشاهده است. اگر Track حداکثر ثابت داشته باشد (`minmax(200px, 300px)`)، ظاهر یکسان است. انتخاب بستگی به طراحی دارد: در گالری یکنواخت `auto-fill`، در «دو کارت که کل فضا را بگیرند» `auto-fit`.
+
+</Deep>
+<Mistake>
+
+گفتن اینکه هیچ تفاوتی ندارند چون در اکثر Demoها با تعداد زیاد آیتم یکسان دیده می‌شوند.
+
+</Mistake>
+<FollowUp>
+
+چرا `minmax(min(250px, 100%), 1fr)` بهتر از `minmax(250px, 1fr)` است؟
+
+</FollowUp>
+</QA>
+
+<QA q="Explicit و Implicit Grid را توضیح دهید." level="mid" n={3}>
+<Answer>
+
+Explicit Grid با `grid-template-rows/columns/areas` تعریف می‌شود. وقتی آیتم‌ها بیشتر از Cellها باشند یا خارج از Grid قرار داده شوند، مرورگر Trackهای Implicit می‌سازد که اندازه آن‌ها با `grid-auto-rows/columns` (پیش‌فرض auto) و جهتشان با `grid-auto-flow` کنترل می‌شود.
+
+</Answer>
+<Deep>
+
+رایج‌ترین الگو: فقط ستون‌ها Explicit هستند و سطرها همه Implicit (`grid-auto-rows: minmax(100px, auto)`). شماره خط منفی (`-1`) فقط به انتهای Grid **صریح** اشاره می‌کند، پس `grid-column: 1 / -1` در Gridی که ستون‌هایش Implicit است کار نمی‌کند.
+
+</Deep>
+<Mistake>
+
+انتظار اینکه `grid-row: 1 / -1` کل سطرهای Implicit را بپوشاند.
+
+</Mistake>
+<FollowUp>
+
+`grid-auto-flow: dense` چه مشکلی برای Accessibility دارد؟
+
+</FollowUp>
+</QA>
+
+## جمع‌بندی
+
+<Recap>
+
+- Grid چیدمان دوبعدی است: سطر و ستون با هم. Flexbox از محتوا شروع می‌کند، Grid از ساختار.
+- `grid-template-columns` و `grid-template-rows` شبکه صریح (Explicit) را تعریف می‌کنند؛ سطرهای اضافه خودکار (Implicit) ساخته می‌شوند و اندازه‌شان با `grid-auto-rows` تعیین می‌شود.
+- `fr` سهمی از فضای **باقی‌مانده** بعد از Trackهای ثابت و gap است؛ `1fr` یعنی `minmax(auto, 1fr)`، پس برای ستون‌های واقعاً مساوی `minmax(0, 1fr)` بنویسید.
+- `repeat()`، `minmax()` و Keywordهای `min-content`، `max-content` و `fit-content()` اندازه Trackها را کنترل می‌کنند.
+- `repeat(auto-fit, minmax(220px, 1fr))` یک Grid واکنش‌گرا بدون Media Query می‌سازد؛ `auto-fill` ستون‌های خالی را نگه می‌دارد و `auto-fit` جمعشان می‌کند.
+- آیتم‌ها با شماره **خط** قرار می‌گیرند (`1 / -1` یعنی تمام عرض)، یا با `span`، یا با نام در `grid-template-areas`.
+- `place-items: center` کوتاه‌ترین راه وسط‌چین است؛ `justify-*` افقی و `align-*` عمودی است.
+- `subgrid` اجازه می‌دهد Grid تودرتو Trackهای والد را به ارث ببرد تا محتوای کارت‌های کنار هم تراز شود.
+
+</Recap>

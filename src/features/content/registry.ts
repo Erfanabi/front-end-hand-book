@@ -241,6 +241,38 @@ const descriptions: Record<string, Localized> = {
     fa: 'مرورگر منابع را چطور بارگذاری می‌کند؛ async و defer، preload، Lazy Loading و تصاویر Responsive.',
     en: 'How the browser loads resources: async and defer, preload, lazy loading and responsive images.',
   },
+  'css/fundamentals': {
+    fa: 'وقتی چند قانون با هم رقابت می‌کنند کدام برنده است؛ Cascade، Specificity، Inheritance و Cascade Layers.',
+    en: 'Which rule wins when several compete: the cascade, specificity, inheritance and cascade layers.',
+  },
+  'css/selectors': {
+    fa: 'همه نوع Selector از ساده تا :has()؛ Combinatorها، Pseudo-classها و Pseudo-elementها با مثال.',
+    en: 'Every kind of selector up to :has(): combinators, pseudo-classes and pseudo-elements, with examples.',
+  },
+  'css/box-model-display': {
+    fa: 'هر عنصر یک جعبه است؛ content، padding، border، margin، box-sizing، Margin Collapse و مقادیر display.',
+    en: 'Every element is a box: content, padding, border, margin, box-sizing, margin collapse and display values.',
+  },
+  'css/positioning': {
+    fa: 'static، relative، absolute، fixed و sticky قدم به قدم؛ Containing Block، z-index و Stacking Context.',
+    en: 'static, relative, absolute, fixed and sticky step by step; containing blocks, z-index and stacking contexts.',
+  },
+  'css/flexbox': {
+    fa: 'چیدمان یک‌بعدی با Flexbox؛ محور اصلی و فرعی، همه Propertyهای Container و Item و فرمول flex.',
+    en: 'One-dimensional layout with flexbox: main and cross axes, every container and item property, and the flex formula.',
+  },
+  'css/grid': {
+    fa: 'چیدمان دوبعدی با Grid؛ Track و Line و Area، واحد fr، repeat و minmax و Auto Placement.',
+    en: 'Two-dimensional layout with grid: tracks, lines and areas, the fr unit, repeat, minmax and auto-placement.',
+  },
+  'css/responsive': {
+    fa: 'طراحی برای هر اندازه صفحه؛ واحدها، Media Query، Container Query، clamp و CSS Variables.',
+    en: 'Designing for every screen: units, media queries, container queries, clamp() and CSS variables.',
+  },
+  'css/rendering-performance': {
+    fa: 'هزینه هر تغییر CSS؛ Reflow و Repaint و Composite، انیمیشن روان، will-change و contain.',
+    en: 'What each CSS change costs: reflow, repaint and composite, smooth animation, will-change and contain.',
+  },
 }
 
 for (const part of parts) {

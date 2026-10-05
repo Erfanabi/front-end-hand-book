@@ -1,0 +1,477 @@
+## Responsive Design چیست؟
+
+`Responsive Design (طراحی واکنش‌گرا)` یعنی یک کدبیس واحد که خود را با **اندازه صفحه، نوع ورودی (لمس/ماوس)، ترجیحات کاربر و فضای در دسترس هر Component** تطبیق دهد. سه ستون اصلی آن که Ethan Marcotte در ۲۰۱۰ معرفی کرد:
+
+1. **Fluid Grid:** چیدمان با واحدهای نسبی، نه پیکسل ثابت.
+2. **Flexible Media:** تصاویر و ویدیوهایی که از ظرفشان بزرگ‌تر نمی‌شوند (`max-width: 100%`).
+3. **Media Queries:** تغییر Style بر اساس ویژگی‌های دستگاه.
+
+امروز دو ابزار دیگر هم اضافه شده: **Container Queries** و **Intrinsic Layout** (Grid با `auto-fit`، `clamp()`) که خیلی وقت‌ها Media Query را غیرضروری می‌کنند.
+
+## قدم صفر: Meta Tag مربوط به viewport
+
+قبل از هر Media Query، این خط باید در `<head>` باشد. بدون آن هیچ‌کدام از تکنیک‌های این فصل روی موبایل درست کار نمی‌کند:
+
+```html
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+```
+
+**چرا؟** وقتی iPhone در ۲۰۰۷ آمد، تقریباً همه سایت‌ها برای دسکتاپ (حدود ۹۸۰ پیکسل) طراحی شده بودند. برای اینکه این سایت‌ها روی صفحه کوچک خراب نشوند، مرورگر موبایل وانمود می‌کرد صفحه ۹۸۰ پیکسل عرض دارد و بعد کل صفحه را کوچک (Zoom out) می‌کرد. نتیجه: متن‌های ریز که باید با دو انگشت بزرگشان می‌کردید. هنوز هم اگر این Meta Tag را ننویسید، مرورگر موبایل همین کار را می‌کند و `@media (max-width: 600px)` هرگز فعال نمی‌شود، چون از نظر مرورگر عرض صفحه ۹۸۰ پیکسل است.
+
+| بخش | یعنی |
+| --- | --- |
+| `width=device-width` | عرض Viewport را برابر عرض واقعی صفحه دستگاه (به CSS Pixel) بگذار |
+| `initial-scale=1` | در شروع Zoom نکن (نسبت ۱ به ۱) |
+
+<Callout type="mistake">
+`maximum-scale=1` یا `user-scalable=no` ننویسید. این‌ها Zoom را برای کاربرانی که دید ضعیفی دارند غیرفعال می‌کنند و خلاف WCAG هستند.
+</Callout>
+
+## Media Queries
+
+**Media Query** یک شرط است: «این قانون‌ها فقط وقتی اعمال شوند که…». ساختارش این است:
+
+```css
+@media (min-width: 768px) {
+/*      └── Feature: شرط ──┘ */
+  .sidebar { display: block; }  /* فقط وقتی شرط درست است اعمال می‌شود */
+}
+```
+
+- **Media Feature** داخل پرانتز، ویژگی‌ای است که بررسی می‌شود: عرض، جهت صفحه، نوع ورودی، تنظیمات کاربر.
+- `min-width: 768px` یعنی «عرض **حداقل** ۷۶۸ پیکسل باشد»، یعنی ۷۶۸ یا بیشتر. `max-width` برعکس: ۷۶۸ یا کمتر.
+- چند شرط را با `and` (هر دو)، ویرگول (یکی کافی است) یا `not` ترکیب می‌کنید.
+- **Range Syntax** جدیدتر خواناتر است: `(width >= 768px)` به‌جای `(min-width: 768px)`.
+
+همه Featureهای مهم:
+
+```css
+@media (min-width: 768px) { ... }
+@media (width >= 768px) and (width < 1024px) { ... }   /* Range Syntax — Baseline 2023 */
+@media (orientation: landscape) { ... }
+@media (hover: hover) and (pointer: fine) { ... }      /* دستگاه با ماوس */
+@media (pointer: coarse) { ... }                        /* لمسی: Targetهای بزرگ‌تر */
+@media (prefers-color-scheme: dark) { ... }
+@media (prefers-reduced-motion: reduce) { ... }
+@media (prefers-contrast: more) { ... }
+@media (forced-colors: active) { ... }                  /* High Contrast در ویندوز */
+@media print { ... }
+```
+
+Media Query از Viewport (یا ویژگی‌های دستگاه) پرس‌وجو می‌کند — نه از اندازه Element.
+
+### Mobile-first در مقابل Desktop-first
+
+| | Mobile-first | Desktop-first |
+| --- | --- | --- |
+| Style پایه برای | کوچک‌ترین صفحه | بزرگ‌ترین صفحه |
+| Media Query | `min-width` (اضافه کردن پیچیدگی) | `max-width` (حذف پیچیدگی) |
+| CSS دانلود و پردازش‌شده در موبایل | ساده‌تر و کمتر Override می‌شود | Styleهای دسکتاپ اعمال و سپس Override می‌شوند |
+| ذهنیت | Progressive Enhancement | Graceful Degradation |
+
+```css
+/* Mobile-first */
+.grid { display: grid; gap: 1rem; }                                      /* یک ستون */
+@media (min-width: 640px)  { .grid { grid-template-columns: 1fr 1fr; } }
+@media (min-width: 1024px) { .grid { grid-template-columns: repeat(3, 1fr); } }
+```
+
+Mobile-first ترجیح داده می‌شود چون شما را مجبور می‌کند ابتدا روی محتوای ضروری تمرکز کنید و موبایل کمترین CSS اضافه را پردازش می‌کند.
+
+### Breakpointها
+
+Breakpointها را بر اساس **محتوا** انتخاب کنید، نه مدل دستگاه: جایی که Layout «می‌شکند». مقادیر رایج (Tailwind): `640`، `768`، `1024`، `1280`، `1536` پیکسل.
+
+- Breakpointها را به‌صورت توکن/متغیر در یک مکان نگه دارید.
+- از Breakpointهای نزدیک به هم و همپوشان پرهیز کنید (`max-width: 768px` و `min-width: 768px` هر دو در 768px فعال می‌شوند؛ Range Syntax با `<` این را حل می‌کند).
+
+## Fluid Layout
+
+```css
+.container {
+  width: min(100% - 2rem, 72rem);  /* حداکثر 72rem، همیشه 1rem حاشیه */
+  margin-inline: auto;
+}
+
+img, video { max-width: 100%; height: auto; }
+```
+
+### clamp()، min() و max()
+
+| تابع | کار | مثال |
+| --- | --- | --- |
+| `min(a, b)` | کوچک‌ترین | `width: min(600px, 100%)` |
+| `max(a, b)` | بزرگ‌ترین | `padding: max(1rem, 3vw)` |
+| `clamp(min, ideal, max)` | ideal، محدود بین min و max | `font-size: clamp(1rem, 0.8rem + 1vw, 1.5rem)` |
+
+`clamp()` در عمل چطور حساب می‌شود؟ فرض کنید `font-size: clamp(1rem, 0.5rem + 2vw, 2rem)` و فونت ریشه ۱۶ پیکسل است:
+
+| عرض صفحه | مقدار وسط (`8px + 2vw`) | نتیجه بعد از محدود شدن بین 16px و 32px |
+| --- | --- | --- |
+| 320px | 8 + 6.4 = 14.4px | **16px** (کمتر از حداقل بود) |
+| 800px | 8 + 16 = 24px | **24px** (بین دو حد) |
+| 1400px | 8 + 28 = 36px | **32px** (بیشتر از حداکثر بود) |
+
+یعنی فونت روی موبایل ۱۶ پیکسل است، با بزرگ شدن صفحه به‌صورت پیوسته بزرگ می‌شود و در صفحه‌های خیلی عریض در ۳۲ پیکسل متوقف می‌شود. بدون حتی یک Media Query.
+
+
+## Container Queries
+
+**مشکل Media Query:** یک Component کارت ممکن است در Sidebar باریک یا در Main عریض قرار بگیرد. Viewport در هر دو حالت یکسان است، پس Media Query نمی‌تواند تفاوت را تشخیص دهد.
+
+`Container Queries` (Baseline 2023) به Component اجازه می‌دهند به **اندازه ظرف خود** واکنش نشان دهند:
+
+```css
+.card-wrapper {
+  container-type: inline-size;   /* این Element یک Query Container است */
+  container-name: card;          /* اختیاری */
+}
+
+.card { display: grid; gap: 1rem; }
+
+@container card (min-width: 420px) {
+  .card { grid-template-columns: 160px 1fr; }   /* افقی وقتی جا هست */
+}
+```
+
+```html live
+<style>
+  .wrap { container-type: inline-size; border: 2px dashed #aaa; padding: 8px; margin-bottom: 10px; resize: horizontal; overflow: auto; }
+  .card { display: grid; gap: 8px; background: #e9edfc; padding: 10px; border-radius: 8px; }
+  .card .img { background: #2a4bd7; min-height: 60px; border-radius: 6px; }
+  @container (min-width: 380px) { .card { grid-template-columns: 120px 1fr; } }
+</style>
+<div class="wrap" style="width: 300px">
+  <div class="card"><div class="img"></div><div>ظرف باریک: چیدمان عمودی. گوشه را بکشید تا عریض شود!</div></div>
+</div>
+<div class="wrap" style="width: 95%">
+  <div class="card"><div class="img"></div><div>ظرف عریض: چیدمان افقی — همان Component، بدون Media Query.</div></div>
+</div>
+```
+
+| | Media Query | Container Query |
+| --- | --- | --- |
+| پرس‌وجو از | Viewport / دستگاه | نزدیک‌ترین جد Container |
+| مناسب برای | Layout کلی صفحه | Componentهای قابل استفاده مجدد |
+| پیش‌نیاز | — | `container-type` روی جد |
+| واحدهای مخصوص | `vw`، `vh` | `cqi`، `cqb`، `cqw`، `cqh` (درصد اندازه Container) |
+
+نکته: `container-type: inline-size` Containment روی اندازه Inline اعمال می‌کند؛ یعنی **عرض Container دیگر نمی‌تواند از محتوایش بیاید**. اگر Container عرض صریح یا از والد نداشته باشد، به صفر می‌رسد.
+
+## Responsive Typography
+
+```css
+:root {
+  /* بین 16px در 320px و 20px در 1280px، به‌صورت خطی */
+  font-size: clamp(1rem, 0.917rem + 0.417vw, 1.25rem);
+}
+
+h1 { font-size: clamp(2rem, 1.5rem + 2.5vw, 3.5rem); }
+```
+
+<Callout type="warning">
+هرگز `font-size: 4vw` تنها ننویسید. متن با Zoom مرورگر بزرگ نمی‌شود (چون vw ثابت است) و WCAG 1.4.4 را نقض می‌کند. ترکیب `rem + vw` داخل `clamp()` هم Zoom و هم تنظیمات اندازه فونت کاربر را محترم می‌شمارد.
+</Callout>
+
+## واحدهای CSS
+
+### واحدهای مطلق
+
+| واحد | معنا |
+| --- | --- |
+| `px` | CSS Pixel — واحد مرجع؛ لزوماً برابر یک پیکسل فیزیکی نیست (DPR) |
+| `pt`، `cm`، `in` | برای چاپ |
+
+یک CSS Pixel در صفحه با `devicePixelRatio = 3` معادل 3×3 پیکسل فیزیکی است.
+
+### واحدهای نسبی به فونت
+
+| واحد | نسبت به | نکته |
+| --- | --- | --- |
+| `em` | `font-size` **همان Element** (برای خود font-size: والد) | **Compounding:** تودرتو ضرب می‌شود |
+| `rem` | `font-size` ریشه (`html`) | قابل پیش‌بینی؛ با تنظیمات فونت کاربر مقیاس می‌گیرد |
+| `ch` | عرض کاراکتر «0» در فونت فعلی | `max-width: 65ch` برای طول خط خوانا |
+| `ex` | ارتفاع x فونت | به‌ندرت |
+| `lh` / `rlh` | `line-height` Element / ریشه | فاصله‌های ریتمیک |
+
+مشکل Compounding در `em`:
+
+```css
+li { font-size: 1.2em; }
+/* li داخل li داخل li: 1.2 × 1.2 × 1.2 = 1.728 برابر */
+```
+
+قانون عملی:
+
+- `rem` برای `font-size` و فاصله‌های کلی (Zoom و تنظیمات کاربر را محترم می‌شمارد).
+- `em` برای Paddingی که باید با فونت همان Component مقیاس بگیرد (دکمه‌ها، Badge).
+- `px` برای Border و Shadowهای ظریف.
+
+<Callout type="interview">
+چرا `font-size` را با `px` ننویسیم؟ کاربری که در تنظیمات مرورگر فونت پیش‌فرض را از 16px به 24px تغییر داده، با `px` همچنان متن 16px می‌بیند. `rem` این تنظیم را محترم می‌شمارد. (Zoom صفحه در هر دو حالت کار می‌کند.)
+</Callout>
+
+### درصد
+
+درصد همیشه نسبت به **چیزی** است، و آن چیز برای هر Property فرق دارد:
+
+| Property | ٪ نسبت به |
+| --- | --- |
+| `width`، `padding`، `margin` (**حتی عمودی!**) | **عرض** Containing Block |
+| `height` | ارتفاع Containing Block (اگر ارتفاع صریح داشته باشد، وگرنه auto) |
+| `top`/`bottom` | ارتفاع Containing Block |
+| `font-size` | font-size والد |
+| `line-height` | font-size خود Element |
+| `transform: translate()` | اندازه **خود Element** |
+
+این‌که `padding-top: 56.25%` یک جعبه 16:9 می‌سازد به همین دلیل بود؛ امروز `aspect-ratio: 16 / 9` جایگزین آن است.
+
+### واحدهای Viewport
+
+| واحد | معنا |
+| --- | --- |
+| `vw` / `vh` | ۱٪ عرض / ارتفاع Viewport |
+| `vmin` / `vmax` | ۱٪ ضلع کوچک‌تر / بزرگ‌تر |
+| `svh` / `svw` | **Small** Viewport: وقتی UI مرورگر (نوار آدرس) **کامل نمایش داده می‌شود** |
+| `lvh` / `lvw` | **Large** Viewport: وقتی UI مرورگر **جمع شده** است |
+| `dvh` / `dvw` | **Dynamic** Viewport: در هر لحظه بین svh و lvh تغییر می‌کند |
+
+**مشکل `100vh` در موبایل:** در مرورگرهای موبایل `vh` برابر Large Viewport است. وقتی نوار آدرس دیده می‌شود، `100vh` از صفحه بلندتر است و دکمه پایین صفحه زیر نوار پنهان می‌شود.
+
+```text
+نوار آدرس نمایش داده شده      نوار آدرس جمع شده
+┌──────────────┐  ┐           ┌──────────────┐ ┐
+│ address bar  │  │           │              │ │
+├──────────────┤ ┐│           │              │ │
+│              │ ││           │              │ │
+│   100svh     │ ││ 100lvh    │   100lvh =   │ │
+│              │ ││ (=100vh)  │   100svh +   │ │
+│              │ ┘│           │   نوار       │ │
+└──────────────┘  │           │              │ │
+   (پنهان) ...    ┘           └──────────────┘ ┘
+```
+
+```css
+.hero { min-height: 100svh; }   /* همیشه کاملاً در دید؛ پایدار */
+.app  { height: 100dvh; }       /* همیشه دقیقاً برابر فضای فعلی؛ با اسکرول تغییر می‌کند */
+```
+
+`dvh` با جمع شدن نوار در حین اسکرول تغییر می‌کند و ممکن است باعث Layout Shift شود؛ برای Heroها معمولاً `svh` امن‌تر است و برای App Shellهای تمام‌صفحه `dvh`.
+
+### fr
+
+فقط در Grid معنا دارد؛ سهمی از فضای باقی‌مانده (فصل [CSS Grid](/css/grid)).
+
+## CSS Variables (Custom Properties)
+
+```css
+:root {
+  --color-accent: #2a4bd7;
+  --space-md: 1rem;
+  --radius: 8px;
+}
+
+.button {
+  background: var(--color-accent);
+  padding: var(--space-md);
+  border-radius: var(--radius);
+}
+```
+
+### تفاوت با متغیرهای Sass
+
+| | Sass `$var` | CSS `--var` |
+| --- | --- | --- |
+| زمان Resolve | Compile time — در خروجی CSS جایگزین می‌شود | **Runtime** در مرورگر |
+| تغییر با JavaScript | خیر | `el.style.setProperty('--x', '10px')` |
+| Scope | Lexical در فایل Sass | **Cascade و DOM**؛ قابل Override در هر Element |
+| ارث‌بری | خیر | بله (به‌طور پیش‌فرض ارث‌بری می‌شوند) |
+| Media Query | ثابت | می‌تواند در Media Query تغییر کند |
+
+### ارث‌بری و Scope
+
+Custom Propertyها مثل `color` ارث‌بری می‌شوند؛ پس می‌توانید آن‌ها را در هر زیردرخت Override کنید:
+
+```css
+.button { background: var(--btn-bg, var(--color-accent)); }
+.danger-zone { --btn-bg: #c92a2a; }  /* همه دکمه‌های داخل این بخش قرمز */
+```
+
+### Fallback
+
+```css
+color: var(--text, #222);                     /* اگر --text تعریف نشده */
+color: var(--text, var(--fallback, black));   /* Fallback تودرتو */
+```
+
+نکته ظریف: اگر متغیر **تعریف شده ولی نامعتبر** باشد (مثلاً `--size: red` برای `width`)، Fallback استفاده **نمی‌شود**؛ Declaration در «Computed-value time» نامعتبر می‌شود و Property به مقدار ارثی یا `initial` برمی‌گردد.
+
+### Theming
+
+```css
+:root {
+  --bg: #ffffff;
+  --text: #161a22;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #0e1219; --text: #e8ecf2; }
+}
+
+[data-theme="dark"] { --bg: #0e1219; --text: #e8ecf2; } /* انتخاب دستی کاربر */
+
+body { background: var(--bg); color: var(--text); }
+```
+
+```html live
+<style>
+  .theme { --bg: #fff; --fg: #161a22; --accent: #2a4bd7; background: var(--bg); color: var(--fg); padding: 16px; border-radius: 10px; border: 1px solid #ddd; }
+  .theme.dark { --bg: #0e1219; --fg: #e8ecf2; --accent: #8197ff; }
+  .theme button { background: var(--accent); color: var(--bg); border: 0; padding: 8px 14px; border-radius: 6px; }
+</style>
+<div class="theme" id="t">
+  <p>فقط متغیرها عوض می‌شوند؛ هیچ Selector جدیدی برای دکمه نوشته نشده.</p>
+  <button onclick="document.getElementById('t').classList.toggle('dark')">تغییر تم</button>
+</div>
+```
+
+### @property
+
+`@property` (Baseline 2024) به Custom Property **نوع** می‌دهد؛ در نتیجه مرورگر می‌تواند آن را Animate کند و ارث‌بری را کنترل کنید:
+
+```css
+@property --angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+.spinner {
+  background: conic-gradient(from var(--angle), #2a4bd7, transparent);
+  animation: spin 1s linear infinite;
+}
+@keyframes spin { to { --angle: 360deg; } }
+```
+
+بدون `@property`، مرورگر نمی‌داند `--angle` یک زاویه است و Gradient را بدون انیمیشن (پرشی) تغییر می‌دهد.
+
+## اشتباهات رایج
+
+- `100vh` برای صفحه تمام‌قد در موبایل.
+- `font-size` با `vw` خالص یا `px`.
+- Breakpointهای مبتنی بر دستگاه خاص.
+- استفاده از Media Query برای Componentی که باید به ظرفش واکنش دهد.
+- انتظار Fallback وقتی متغیر با مقدار نامعتبر تعریف شده.
+- `container-type: size` بدون ارتفاع صریح (Container ارتفاع صفر می‌گیرد).
+- تصاویر بدون `max-width: 100%`.
+
+## سوالات مصاحبه
+
+<QA q="تفاوت `em` و `rem` چیست و هرکدام را کجا استفاده می‌کنید؟" level="junior" n={1}>
+<Answer>
+
+`rem` نسبت به `font-size` ریشه (`html`) و `em` نسبت به `font-size` خود Element (برای خود `font-size`، والد) است. `em` تودرتو ضرب می‌شود (Compounding). `rem` برای اندازه فونت و فاصله‌های کلی؛ `em` برای Padding و فاصله‌هایی که باید با فونت همان Component مقیاس بگیرند.
+
+</Answer>
+<Deep>
+
+در Media Queryها `em` و `rem` هر دو نسبت به font-size **پیش‌فرض مرورگر** هستند، نه `html`. استفاده از `em` در Media Query باعث می‌شود Breakpointها با تنظیم فونت کاربر هم جابه‌جا شوند و Layout با فونت بزرگ‌تر خراب نشود.
+
+</Deep>
+<Mistake>
+
+ست کردن `html { font-size: 62.5% }` برای اینکه 1rem = 10px شود و سپس فراموش کردن اینکه متن پیش‌فرض کتابخانه‌های ثالث ریز می‌شود.
+
+</Mistake>
+<FollowUp>
+
+چرا `font-size: 16px` روی html تنظیمات فونت کاربر را خنثی می‌کند؟
+
+</FollowUp>
+</QA>
+
+<QA q="مشکل `100vh` در موبایل چیست و `svh`، `lvh` و `dvh` چطور آن را حل می‌کنند؟" level="mid" n={2}>
+<Answer>
+
+در موبایل `vh` برابر Large Viewport است (وقتی نوار آدرس جمع شده). وقتی نوار نمایش داده می‌شود، `100vh` بلندتر از فضای قابل مشاهده است و محتوای پایین پنهان می‌شود. `svh` اندازه کوچک (نوار نمایان)، `lvh` اندازه بزرگ و `dvh` اندازه لحظه‌ای را می‌دهد.
+
+</Answer>
+<Deep>
+
+`dvh` با هر تغییر نوار به‌روز می‌شود و ممکن است در حین اسکرول Layout و Repaint ایجاد کند؛ برای عناصر بزرگ `svh` پایدارتر است. کیبورد مجازی به‌طور پیش‌فرض این واحدها را تغییر نمی‌دهد (Visual Viewport تغییر می‌کند)؛ `interactive-widget=resizes-content` در meta viewport این رفتار را کنترل می‌کند.
+
+</Deep>
+<Mistake>
+
+استفاده از JavaScript برای محاسبه `window.innerHeight` و نوشتن در یک CSS Variable — راه‌حل قدیمی که امروز لازم نیست.
+
+</Mistake>
+<FollowUp>
+
+Visual Viewport و Layout Viewport چه تفاوتی دارند؟
+
+</FollowUp>
+</QA>
+
+<QA q="Container Query چه مشکلی را حل می‌کند که Media Query نمی‌تواند؟" level="mid" n={3}>
+<Answer>
+
+Media Query به Viewport واکنش نشان می‌دهد؛ Container Query به اندازه ظرف Component. یک کارت در Sidebar باریک و Main عریض با یک Viewport یکسان رندر می‌شود؛ فقط Container Query می‌تواند Layout کارت را بر اساس فضای واقعی‌اش تغییر دهد. این برای Componentهای Design System که جای استفاده‌شان نامعلوم است ضروری است.
+
+</Answer>
+<Deep>
+
+`container-type: inline-size` روی جد، Size Containment در محور Inline اعمال می‌کند تا از حلقه بی‌نهایت جلوگیری شود (اندازه Container نمی‌تواند به محتوایی وابسته باشد که به اندازه Container وابسته است). همچنین Style Queries (`@container style(--variant: compact)`) امکان پرس‌وجو از مقدار Custom Propertyها را می‌دهند.
+
+</Deep>
+<Mistake>
+
+قرار دادن `container-type` روی خود Component به جای جد آن؛ یک Element نمی‌تواند از خودش Query کند.
+
+</Mistake>
+<FollowUp>
+
+واحدهای `cqi` و `cqw` چه کاربردی دارند؟
+
+</FollowUp>
+</QA>
+
+<QA q="CSS Variables با متغیرهای Sass چه فرقی دارند؟" level="mid" n={4}>
+<Answer>
+
+متغیر Sass در زمان Compile جایگزین و حذف می‌شود؛ CSS Variable در Runtime وجود دارد، در Cascade شرکت می‌کند، ارث‌بری می‌شود، در هر زیردرخت قابل Override است و با JavaScript تغییر می‌کند. به همین دلیل برای Theming پویا ایده‌آل است.
+
+</Answer>
+<Deep>
+
+تغییر یک Custom Property روی `:root` می‌تواند Style Recalculation روی کل سند را فعال کند؛ برای انیمیشن‌های پرتکرار (مثلاً موقعیت ماوس) متغیر را روی نزدیک‌ترین Element ممکن تنظیم کنید. با `@property` و `inherits: false` می‌توان ارث‌بری را خاموش و هزینه را کم کرد.
+
+</Deep>
+<Mistake>
+
+فکر کردن اینکه Fallback در `var(--x, fallback)` وقتی `--x` مقدار نامعتبر دارد استفاده می‌شود.
+
+</Mistake>
+<FollowUp>
+
+چطور یک Theme Switcher بدون Flash تم اشتباه در بارگذاری صفحه پیاده می‌کنید؟ (اسکریپت Inline قبل از Paint در head — مثل همین سایت.)
+
+</FollowUp>
+</QA>
+
+## جمع‌بندی
+
+<Recap>
+
+- بدون `<meta name="viewport" content="width=device-width, initial-scale=1">` مرورگر موبایل صفحه را ۹۸۰ پیکسلی فرض می‌کند و Media Queryها کار نمی‌کنند.
+- Media Query یک شرط روی Viewport یا دستگاه است؛ Mobile-first با `min-width` از ساده به پیچیده می‌رود.
+- Breakpoint را جایی بگذارید که محتوا می‌شکند، نه بر اساس مدل گوشی.
+- `min()`، `max()` و `clamp()` اندازه‌های سیال بدون Media Query می‌سازند.
+- Container Query به Component اجازه می‌دهد به اندازه **ظرف خودش** واکنش نشان دهد؛ پیش‌نیازش `container-type` روی جد است.
+- `rem` برای فونت (تنظیمات کاربر را محترم می‌شمارد)، `em` برای فاصله‌ای که با فونت همان Component مقیاس می‌گیرد، `px` برای Border.
+- Padding و Margin درصدی نسبت به **عرض** والدند؛ `translate` درصدی نسبت به خود Element.
+- در موبایل به‌جای `100vh` از `100svh` (پایدار) یا `100dvh` (دقیق ولی متغیر) استفاده کنید.
+- CSS Variableها در Runtime حل می‌شوند، ارث می‌رسند و با JavaScript قابل تغییرند؛ `@property` به آن‌ها نوع می‌دهد تا قابل انیمیشن شوند.
+
+</Recap>

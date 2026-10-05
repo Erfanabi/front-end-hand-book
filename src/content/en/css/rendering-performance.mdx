@@ -1,0 +1,290 @@
+## Why CSS affects performance
+
+Every visual change — a hover, an animation, scrolling, a class toggled by JavaScript — forces the browser to re-run part of the **rendering pipeline**. **Which property** you change decides which stages run and how much it costs.
+
+At 60fps each frame has about **16.7ms**; the browser needs some of that, so realistically about **10ms** remains for your code. On 120Hz displays it's half that.
+
+## What is a frame, and what does the browser do in each one?
+
+Your screen (on most devices) refreshes the image **60 times a second**. Each image is a **frame**, like the frames of a film. If the browser can prepare a new frame for every refresh, motion looks smooth. If it can't and drops a frame, your eye sees a "jump" or "stutter" called **jank**.
+
+1000 milliseconds divided by 60 frames gives each frame about **16.7ms**. In that time the browser must both run your JavaScript and redraw the page.
+
+Two terms you'll see a lot below:
+
+- **Main thread:** the single thread your JavaScript, style calculation, layout and paint all run on. If it's busy, all of those wait.
+- **Compositor thread:** a separate thread that stacks ready-made layers and displays them with the help of the **GPU** (graphics processor). It can keep working even while the main thread is busy.
+
+The secret of smooth animation in one sentence: **make your changes need only the compositor thread.** The rest of this chapter explains how.
+
+## The pixel pipeline
+
+```mermaid
+flowchart LR
+    A["JavaScript / animation"] --> B["Style (recalc)"]
+    B --> C["Layout (reflow)"]
+    C --> D["Paint (repaint)"]
+    D --> E["Composite"]
+```
+
+| Stage | What happens | Cost |
+| --- | --- | --- |
+| **Style** | Compute each element's computed style (selector matching and cascade) | Depends on the number of affected elements and selector complexity |
+| **Layout** (reflow) | Compute geometry: every box's position and size | **Expensive**; one change can invalidate the layout of a subtree or the whole page |
+| **Paint** (repaint) | Draw pixels — text, colours, borders, shadows, images — into layers | Medium to expensive; depends on area and complexity (blur, big shadows) |
+| **Composite** | Combine painted layers in the right order, usually on the **GPU** in the compositor thread | **Cheap** |
+
+## Three possible paths
+
+### 1. Layout → Paint → Composite (most expensive)
+
+Changing **geometry**: `width`, `height`, `margin`, `padding`, `top`/`left`, `font-size`, `border-width`, `display`, `position`, adding/removing elements, changing text.
+
+### 2. Paint → Composite (no layout)
+
+Changing **appearance without geometry**: `color`, `background-color`, `box-shadow`, `border-radius`, `outline`, `visibility`, `background-image`.
+
+### 3. Composite only (cheapest)
+
+`transform` and `opacity` (and usually `filter`) — provided the element is on **its own compositor layer**. The browser just moves, rotates, scales or fades an already-painted layer; the main thread isn't involved at all.
+
+| You want to… | Instead of | Use |
+| --- | --- | --- |
+| Move | `top`, `left`, `margin` | `transform: translate()` |
+| Resize | `width`, `height` | `transform: scale()` |
+| Rotate | — | `transform: rotate()` |
+| Fade | `visibility`, `display` | `opacity` |
+| Animate a shadow | `box-shadow` | `opacity` on an `::after` that has the shadow |
+
+```css
+/* bad: layout on every frame */
+.drawer { transition: left 300ms; left: -300px; }
+.drawer.open { left: 0; }
+
+/* good: composite only */
+.drawer { transition: transform 300ms ease-out; transform: translateX(-100%); }
+.drawer.open { transform: translateX(0); }
+```
+
+<Callout type="interview">
+The key line: "In animations I only change `transform` and `opacity`, because they run on the compositor thread and the GPU, so the animation stays smooth even while the main thread is busy running JavaScript."
+</Callout>
+
+## Reflow and repaint
+
+- `Reflow` is layout: recomputing geometry.
+- `Repaint` is paint: redrawing pixels.
+
+**Every reflow is followed by a repaint, but not every repaint needs a reflow.**
+
+## Layout thrashing (forced synchronous layout)
+
+The browser batches style changes and performs layout **lazily**, once, before the next frame. But if you **read** a geometric property right after a **write**, the browser must run layout synchronously, right now, to give you the correct number.
+
+Properties that force layout: `offsetWidth/Height/Top/Left`, `clientWidth/Height`, `scrollTop/Height`, `getBoundingClientRect()`, `getComputedStyle()` (for geometric properties), `innerText`, `focus()`, and more.
+
+```js
+// bad: interleaved reads and writes → one layout per item (layout thrashing)
+for (const box of boxes) {
+  const width = box.offsetWidth;          // READ → forced layout
+  box.style.width = width * 2 + "px";     // WRITE → invalidates layout
+}
+
+// good: all reads first, then all writes → one layout
+const widths = boxes.map((box) => box.offsetWidth);   // one layout
+boxes.forEach((box, i) => {
+  box.style.width = widths[i] * 2 + "px";             // no layout until the next frame
+});
+```
+
+```text
+Thrashing:   W R▓ W R▓ W R▓ W R▓   (▓ = synchronous layout, N times)
+Batched:     R R R R▓ W W W W      (one layout)
+```
+
+Libraries like `fastdom` automate this with read/write queues. In JavaScript animations, do writes inside `requestAnimationFrame`.
+
+## Layers and GPU compositing
+
+The browser splits the page into **layers**. Each layer is painted separately and then composited on the GPU. Some elements get their own layer (promotion):
+
+- Elements whose `transform` or `opacity` is being animated
+- `will-change: transform` or `will-change: opacity`
+- `video`, `canvas`, `iframe`
+- `position: fixed` (in some situations)
+- Elements overlapping another layer (sometimes causing a "layer explosion")
+
+### will-change
+
+```css
+.card:hover { will-change: transform; }  /* prepare just before an animation */
+.menu { will-change: transform; }         /* an element animated constantly */
+```
+
+**Warning:** each layer consumes **GPU memory** (width × height × 4 bytes × DPR²). `will-change` on hundreds of elements, or `* { will-change: transform }`, fills memory and makes performance **worse** — especially on mobile. `will-change: transform` also creates a stacking context and a containing block for `fixed` descendants.
+
+## CSS containment
+
+`contain` promises the browser that an element's internals are independent of the rest of the page, so work can be scoped:
+
+| Value | Promise |
+| --- | --- |
+| `layout` | Internal layout doesn't affect the outside |
+| `paint` | Children don't paint outside the box (like `overflow: clip`) |
+| `size` | Size doesn't depend on children (must be set explicitly) |
+| `style` | Counters and quotes don't leak |
+| `content` | `layout paint style` |
+| `strict` | `size layout paint style` |
+
+### content-visibility
+
+```css
+.article-section {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 800px;   /* estimated size for a correct scrollbar */
+}
+```
+
+Elements outside the viewport **aren't rendered** (their style, layout and paint are skipped) until they get close. For long pages (like this handbook) it dramatically cuts initial rendering time. `contain-intrinsic-size` reserves space so the scrollbar doesn't jump; `auto` remembers the real size after the first render.
+
+## Selector performance
+
+Modern engines heavily optimise selector matching (Bloom filters, invalidation sets). In practice:
+
+- How many elements get their styles **invalidated** matters more than selector complexity. Toggling a class on `body` can recalculate styles for the entire page.
+- `:has()` on high-level elements and generic `*` selectors can widen invalidation.
+- A large DOM (over ~1,500 nodes) raises style and layout costs on its own.
+
+## Expensive paint
+
+- `box-shadow` with a large blur and `filter: blur()` over large areas
+- `backdrop-filter` (glassmorphism) — re-blurs the background every frame
+- Complex full-page gradients that change
+- `background-attachment: fixed` — repaints on every scroll
+
+## Respect `prefers-reduced-motion`
+
+For some users (for example people with vestibular disorders) large animations, parallax and fast motion cause dizziness and nausea. They turn on "reduce motion" in their OS settings, and CSS can read it:
+
+```css
+.card { transition: transform 300ms ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  .card { transition: none; }               /* no motion */
+  html { scroll-behavior: auto; }           /* smooth scrolling off too */
+}
+```
+
+A good rule: remove or shorten large motion (movement, rotation, zoom), while small meaningful changes like fades (`opacity`) are usually fine.
+
+## Measuring
+
+1. **Chrome DevTools → Performance:** record the interaction; purple blocks are rendering (style/layout), green are paint. A red "Forced reflow" warning means layout thrashing.
+2. **Rendering tab:** paint flashing (repainted areas flash green), layout shift regions, layer borders.
+3. **Layers panel:** layers, why they were promoted, and their memory.
+4. **Lighthouse and Web Vitals:** CLS and INP.
+
+```js
+// Measure long animation frames (LoAF) in the field
+new PerformanceObserver((list) => {
+  for (const entry of list.getEntries()) {
+    if (entry.duration > 50) console.log("Slow frame", entry.duration, entry.scripts);
+  }
+}).observe({ type: "long-animation-frame", buffered: true });
+```
+
+## Common mistakes
+
+- Animating `width`, `height`, `top` or `left`.
+- Interleaving reads and writes in loops (layout thrashing).
+- `will-change` on everything.
+- `transition: all` — animates every property, including layout-triggering ones.
+- Animating `box-shadow` instead of the `opacity` of a pseudo-element.
+- Ignoring `prefers-reduced-motion`.
+
+## Interview questions
+
+<QA q="What's the difference between reflow and repaint? Which properties trigger each?" level="mid" n={1}>
+<Answer>
+
+Reflow (layout) recomputes geometry and is triggered by properties like `width`, `margin`, `top`, `font-size` or adding elements. Repaint redraws pixels and is triggered by `color`, `background`, `box-shadow`. Every reflow leads to a repaint, but not vice versa. `transform` and `opacity` can skip both and only composite.
+
+</Answer>
+<Deep>
+
+The browser performs layout lazily and in batches, unless you force synchronous layout by reading geometric properties after writing. Reflow scope can be limited with containment (`contain: layout`) and layout boundaries. Which stage each property triggers varies between engines.
+
+</Deep>
+<Mistake>
+
+Saying `visibility: hidden` causes a reflow; it only repaints because the space is preserved.
+
+</Mistake>
+<FollowUp>
+
+What is layout thrashing and how do you avoid it?
+
+</FollowUp>
+</QA>
+
+<QA q="Why is an animation with `transform` smoother than one with `left`?" level="mid" n={2}>
+<Answer>
+
+Changing `left` triggers layout, paint and composite on the main thread every frame. `transform` on an element with its own layer only triggers compositing, which runs on the compositor thread and the GPU; even if the main thread is busy with JavaScript, the animation doesn't stutter.
+
+</Answer>
+<Deep>
+
+`transform` also animates with sub-pixel precision, while `left` may snap to whole pixels and look jerky. The cost: a separate layer uses GPU memory, and text inside scaled layers can render blurry.
+
+</Deep>
+<Mistake>
+
+Thinking `transform` is always GPU-accelerated; if the element has no separate layer, or JavaScript changes the style every frame, the main thread is still involved.
+
+</Mistake>
+<FollowUp>
+
+What is a FLIP animation, and how does it animate a layout change with `transform`?
+
+</FollowUp>
+</QA>
+
+<QA q="What is `will-change`, and why is overusing it harmful?" level="senior" n={3}>
+<Answer>
+
+It's a hint that a property is about to change so the browser can prepare (usually by promoting the element to its own layer). Overuse fills GPU memory, increases compositing time, and on mobile causes slowdowns or even crashes.
+
+</Answer>
+<Deep>
+
+Best use: add it briefly before an animation (e.g. on the parent's `:hover`, or via JavaScript on `pointerenter`) and remove it afterwards. `will-change` also creates a stacking context and a containing block for `fixed` descendants, which can change layout.
+
+</Deep>
+<Mistake>
+
+`* { will-change: transform; }`, or putting it on every card in a long list.
+
+</Mistake>
+<FollowUp>
+
+How does `content-visibility: auto` differ from JavaScript list virtualization?
+
+</FollowUp>
+</QA>
+
+## Recap
+
+<Recap>
+
+- At 60 frames per second each frame gets about 16.7ms; a dropped frame is jank.
+- The rendering pipeline: style → layout → paint → composite. The earlier a change starts, the more it costs.
+- Geometry changes (`width`, `top`, `margin`) run all stages; colour and shadow changes start at paint; `transform` and `opacity` are composite-only.
+- For animation, change only `transform` and `opacity` so it runs on the compositor thread and the GPU.
+- Reading geometry right after writing styles forces a synchronous layout (layout thrashing); do all reads first, then all writes.
+- Use `will-change` briefly and only on elements that really animate; every layer costs GPU memory.
+- `contain` and `content-visibility: auto` limit work to part of the page or skip off-screen sections.
+- `backdrop-filter`, blurs and big shadows are expensive to paint.
+- Respect `prefers-reduced-motion`, and measure with DevTools' Performance and Rendering panels instead of guessing.
+
+</Recap>

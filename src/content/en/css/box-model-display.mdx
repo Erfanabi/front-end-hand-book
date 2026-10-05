@@ -1,0 +1,506 @@
+## Everything on the page is a box
+
+Open your browser's DevTools and hover any element: a coloured rectangle appears around it. In CSS **every element is a rectangular box** — even a circle made with `border-radius: 50%`, even a single word in a paragraph. The browser builds the whole page by placing these boxes next to and inside each other.
+
+The **box model** decides two things: which **layers** a box is made of, and how its final **size** is calculated. Almost every layout problem ("why don't these two columns fit side by side?", "where does this gap come from?") is solved by understanding the box model precisely.
+
+## The four layers of a box
+
+From the inside out:
+
+```text
+┌──────────────────────────── margin ────────────────────────────┐
+│   ┌──────────────────────── border ────────────────────────┐   │
+│   │   ┌──────────────────── padding ───────────────────┐   │   │
+│   │   │                                                │   │   │
+│   │   │               content (width × height)         │   │   │
+│   │   │                                                │   │   │
+│   │   └────────────────────────────────────────────────┘   │   │
+│   └────────────────────────────────────────────────────────┘   │
+└────────────────────────────────────────────────────────────────┘
+```
+
+An analogy: picture a framed painting. The **content** is the painting itself, the **padding** is the white mat around it, the **border** is the wooden frame, and the **margin** is the space between this frame and the others on the wall.
+
+| Layer | What it is | Gets the background? | Can be negative? |
+| --- | --- | --- | --- |
+| **Content** | The actual content: text, images, children | Yes | — |
+| **Padding** | **Inner** space between content and border | Yes; `background` extends under the padding | No |
+| **Border** | The line around the box | Has its own colour | No |
+| **Margin** | **Outer** space between this and other elements | No; always transparent | **Yes** |
+
+```html live
+<style>
+  .box {
+    width: 180px;
+    padding: 20px;                 /* inner space; has the background colour */
+    border: 6px solid #2459e0;     /* the frame */
+    margin: 24px;                  /* outer space; transparent */
+    background: #e9edfc;
+    font: 14px system-ui;
+  }
+  .wrapper { background: repeating-linear-gradient(45deg, #fff3e0 0 6px, #ffe8cc 6px 12px); display: inline-block; }
+</style>
+<!-- The orange stripes are the margin: it is transparent, so the parent's background shows through -->
+<div class="wrapper"><div class="box">content</div></div>
+```
+
+### Padding
+
+The space between the content and the border. It has four separate properties (`padding-top`, `padding-right`, `padding-bottom`, `padding-left`) and a **shorthand** whose meaning depends on how many values you give. The order is always **clockwise from the top**: top → right → bottom → left.
+
+| Written | Means |
+| --- | --- |
+| `padding: 10px` | All four sides 10px |
+| `padding: 10px 20px` | Top and bottom 10px · left and right 20px |
+| `padding: 10px 20px 30px` | Top 10px · left and right 20px · bottom 30px |
+| `padding: 10px 20px 30px 40px` | Top 10 · right 20 · bottom 30 · left 40 |
+
+**An important trap:** percentage padding (and margin) is always calculated from the parent's **width** — even `padding-top` and `padding-bottom`! This odd behaviour enabled an old trick: `padding-top: 56.25%` makes a 16:9 box. Today we have `aspect-ratio: 16 / 9` for that.
+
+### Border
+
+It has three parts: **width** (`border-width`), **style** (`border-style`) and **colour** (`border-color`). The shorthand takes all three together, in any order:
+
+```css
+.card { border: 1px solid #e4e6ea; }             /* all four sides */
+.tab  { border-bottom: 3px solid currentColor; } /* bottom only; currentColor = the text colour */
+```
+
+<Callout type="mistake">
+If you leave out `border-style`, the border is **invisible**, because its default is `none`. `border: 2px red` draws nothing; you need `border: 2px solid red`.
+</Callout>
+
+`border-radius` rounds the corners, and `outline` looks like a border but **takes no space in layout** (it is drawn over surrounding boxes), which makes it ideal for focus rings.
+
+### Margin
+
+The outer space. Its shorthand works exactly like padding's. It has three special features padding doesn't:
+
+**1. Negative values are allowed.** A negative margin pulls the element the other way or overlaps it with its neighbour:
+
+```css
+.avatar-stack img + img { margin-inline-start: -12px; } /* overlapping avatars */
+```
+
+**2. `auto` fills the free space.** For a block with a set width, `margin-inline: auto` splits the remaining space equally between both sides — i.e. **horizontal centring**:
+
+```html live
+<style>
+  .center { width: 220px; margin-inline: auto; background: #e9edfc; padding: 12px; font: 14px system-ui; text-align: center; }
+</style>
+<div class="center">margin-inline: auto — centred horizontally</div>
+```
+
+`margin-top: auto` resolves to zero in normal flow and does nothing, but in flexbox and grid it does the same job vertically (see [Flexbox](/css/flexbox)).
+
+**3. Vertical margins can collapse,** i.e. two adjacent margins merge into one. This is margin's strangest behaviour, and it gets a full section below.
+
+## `box-sizing`: whose width is your width?
+
+If you write `width: 200px`, which layer is 200px wide? The answer depends on `box-sizing`:
+
+| Value | `width` includes | On-screen width for `width: 200px; padding: 20px; border: 5px` |
+| --- | --- | --- |
+| `content-box` (default) | Content only | 200 + 2×20 + 2×5 = **250px** |
+| `border-box` | Content + padding + border | **200px** (the content shrinks to 150px) |
+
+```html live
+<style>
+  .box { width: 200px; padding: 20px; border: 5px solid #2459e0; margin-bottom: 10px; background: #e9edfc; font: 14px system-ui; }
+  .content { box-sizing: content-box; }
+  .border  { box-sizing: border-box; }
+</style>
+<div class="box content">content-box — actual width 250px</div>
+<div class="box border">border-box — actual width 200px</div>
+```
+
+### Why does every project choose `border-box`?
+
+Say you want two side-by-side columns, each `width: 50%` with `padding: 20px`. With `content-box` each column is `50% + 40px` wide and together they exceed 100%, so the second column wraps to the next line. With `border-box` the width you write is the width you see, and padding is taken from the inside. That's why almost every project has this reset:
+
+```css
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+```
+
+`::before` and `::after` are listed separately because `*` doesn't match pseudo-elements.
+
+## Box size: `width`, `height`, min and max
+
+**A block's width defaults to `auto`**, meaning "take all the width available in the parent". **Its height also defaults to `auto`**, meaning "as tall as the content". These two different defaults explain a lot of layout behaviour.
+
+| Property | Job |
+| --- | --- |
+| `width` / `height` | Exact size |
+| `min-width` / `min-height` | Minimum; the box never gets smaller |
+| `max-width` / `max-height` | Maximum; the box never gets larger |
+| `aspect-ratio` | Width-to-height ratio, e.g. `16 / 9` |
+
+When they conflict, `min` beats `max`, and `max` beats `width`.
+
+```css
+/* The common page-container pattern: grows up to 1200px, full width on phones */
+.container { max-width: 1200px; margin-inline: auto; padding-inline: 16px; }
+
+/* An image never overflows its container */
+img { max-width: 100%; height: auto; }
+```
+
+<Callout type="tip">
+Don't give fixed `height`s to containers that hold text; if the text grows (translation, the user's larger font) it overflows. Use `min-height` so the box grows when needed.
+</Callout>
+
+## Margin collapse: when 24 + 16 equals 24
+
+One of CSS's most confusing behaviours: the **vertical margins** of two adjacent blocks **don't add up**; only the **larger** one remains.
+
+```css
+h2 { margin-bottom: 24px; }
+p  { margin-top: 16px; }
+/* The gap between the h2 and the p is 24px, not 40px */
+```
+
+**Why was it designed like this?** For typography. If every paragraph has `margin: 1em 0`, without collapsing the gap between two paragraphs would be `2em` but the gap above the first one only `1em`. With collapsing, spacing stays even.
+
+### The three cases
+
+**1. Adjacent siblings:** the first one's bottom margin and the second one's top margin (the example above).
+
+**2. A parent and its first or last child:** if nothing separates the parent's margin from the child's (no border, padding or inline text), the child's margin **leaks out of the parent**. This is the most confusing case: you give the child `margin-top` and the parent moves down!
+
+```html live
+<style>
+  .parent { background: #e9edfc; font: 14px system-ui; }
+  .child  { margin-top: 40px; background: #ffd8a8; }
+  .fixed  { display: flow-root; } /* a new BFC → no more collapsing */
+</style>
+<div class="parent"><div class="child">The child's margin-top leaked out of the parent; the parent's blue background isn't above it</div></div>
+<hr />
+<div class="parent fixed"><div class="child">With display: flow-root, the margin stays inside the parent</div></div>
+```
+
+**3. An empty block:** if a block has no content, padding, border or height, its own top and bottom margins merge.
+
+**Negative margins:** if one is positive and one negative, they add up (`30px` and `-10px` → `20px`). If both are negative, the most negative wins.
+
+### When does collapsing **not** happen?
+
+- **Horizontal** margins never collapse.
+- Flex and grid items; their margins never collapse.
+- `float`ed elements and `position: absolute` or `fixed`.
+- When padding or a border sits between the parent and the child.
+- When the parent creates a new **BFC** (next section).
+
+<Callout type="tip">
+The modern way to avoid margin-collapse headaches: space children with `gap` in flex or grid, or follow a "margins in one direction only" rule (e.g. every element uses only `margin-block-end`).
+</Callout>
+
+## Formatting contexts and the BFC
+
+A **formatting context** is the set of rules for how boxes inside a container are laid out. There are several kinds:
+
+- **Block formatting context (BFC):** boxes stack **vertically**, each taking the full width.
+- **Inline formatting context:** boxes flow **in a line**, like the words of a paragraph, wrapping when needed.
+- **Flex** and **grid formatting contexts:** the rules of flexbox and grid.
+
+A **new BFC** is a container that behaves like an "independent world". It has three important effects:
+
+1. Its children's margins don't leak out of it (collapsing with the parent stops).
+2. It contains `float`ed children; its height doesn't collapse to zero.
+3. Next to a `float` it sits beside it instead of flowing underneath.
+
+**What creates a new BFC?** `display: flow-root` (the cleanest way; made for exactly this), `overflow` other than `visible` or `clip`, `display: inline-block`, `float`, `position: absolute` or `fixed`, and flex and grid items.
+
+## `display`: how should the box behave?
+
+The `display` property actually decides **two** things:
+
+- **Outer display:** how does this box behave relative to its siblings? **block** (start a new line, take the full width) or **inline** (sit in the flow of text alongside others).
+- **Inner display:** how does it lay out its children? `flow` (normal), `flex`, `grid`, `table` or `flow-root`.
+
+The two-value syntax makes this explicit, and the familiar single keywords are shorthands for it:
+
+| Familiar value | Two-value equivalent | Means |
+| --- | --- | --- |
+| `block` | `block flow` | Block outside, normal inside |
+| `inline` | `inline flow` | Inline outside, normal inside |
+| `inline-block` | `inline flow-root` | Inline outside, a new BFC inside |
+| `flex` | `block flex` | Block outside, children laid out with flexbox |
+| `inline-flex` | `inline flex` | Inline outside, children with flexbox |
+| `grid` | `block grid` | Block outside, children with grid |
+| `flow-root` | `block flow-root` | Block outside, a new BFC inside |
+
+### `block`, `inline` and `inline-block` side by side
+
+```html live
+<style>
+  .demo span, .demo div { background: #e9edfc; border: 1px solid #2459e0; padding: 8px; margin: 8px; width: 120px; height: 40px; font: 13px system-ui; }
+  .b  { display: block; }
+  .i  { display: inline; }
+  .ib { display: inline-block; }
+</style>
+<div class="demo">
+  <span class="b">block</span><span class="b">block</span>
+  <hr />
+  text before <span class="i">inline</span> text between <span class="i">inline</span> text after
+  <hr />
+  text before <span class="ib">inline-block</span> text between <span class="ib">inline-block</span>
+</div>
+```
+
+Look closely at the result:
+
+- **block**: each on a new line, and `width` and `height` are applied.
+- **inline**: sits within the text and **ignores `width` and `height`**. Vertical padding is painted but doesn't push the lines above and below away (it overlaps them), and vertical margin has no effect.
+- **inline-block**: the best of both; sits in the line but fully honours `width`, `height`, padding and margin. Good for buttons and badges.
+
+| Value | New line? | `width`/`height` | Vertical margin/padding | Use for |
+| --- | --- | --- | --- | --- |
+| `block` | Yes | Applied | Full | Sections, paragraphs, cards |
+| `inline` | No | **Ignored** | Padding painted but takes no space; margin has no effect | Text, links, `strong` |
+| `inline-block` | No | Applied | Full | Buttons, badges |
+| `flex` / `grid` | Yes | Applied | Full | Layout |
+| `flow-root` | Yes | Applied | Full | A new BFC; stops collapsing and contains floats |
+| `none` | — | — | — | Removed from the page entirely |
+| `contents` | — | — | — | Its own box disappears; its children stay |
+
+Every HTML tag has a default `display` from the browser stylesheet: `div`, `p`, `h1`–`h6`, `section` and `ul` are block; `span`, `a`, `strong`, `img` and `input` are inline. You can change any of them with CSS; the HTML's meaning (semantics) doesn't change.
+
+### `display: contents`
+
+Removes the element's own box but keeps its children where they are, as if they were direct children of the grandparent. Handy when a wrapper (say, from a component) sits between a grid and its items:
+
+```css
+.grid { display: grid; grid-template-columns: repeat(3, 1fr); }
+.grid > .group { display: contents; } /* group's children become grid items directly */
+```
+
+<Callout type="warning">
+In some browsers, `display: contents` on semantic elements (`button`, `ul`, `table`) used to remove their role from the accessibility tree. Most of those bugs are fixed, but use it carefully on interactive elements.
+</Callout>
+
+## Three ways to hide: `display: none`, `visibility: hidden` and `opacity: 0`
+
+All three hide an element from view, but they behave completely differently:
+
+| | `display: none` | `visibility: hidden` | `opacity: 0` |
+| --- | --- | --- | --- |
+| Takes up space? | No | Yes | Yes |
+| Clickable and focusable? | No | No | **Yes** |
+| Read by screen readers? | No | No | **Yes** |
+| Can a child be visible? | No | Yes (`visibility: visible` on the child) | No |
+| Transitions? | No (unless `transition-behavior: allow-discrete`) | Yes, discretely | Yes, smoothly |
+| Cost of changing it | Layout again | Paint only | Composite only (cheapest) |
+
+```html live
+<style>
+  .row { display: flex; gap: 8px; font: 13px system-ui; margin-bottom: 6px; }
+  .row span { padding: 8px; background: #e9edfc; border: 1px solid #2459e0; }
+  .n { display: none; } .v { visibility: hidden; } .o { opacity: 0; }
+</style>
+<div class="row"><span>A</span><span class="n">display:none</span><span>C</span></div>
+<div class="row"><span>A</span><span class="v">visibility:hidden</span><span>C</span></div>
+<div class="row"><span>A</span><span class="o">opacity:0</span><span>C</span></div>
+```
+
+**How to choose:** to really remove something, `display: none`. For a fade animation, `opacity`, plus `visibility: hidden` at the end so the element can't be interacted with. For text only screen readers should read (like an icon button's label), the `.sr-only` class (see [Accessibility](/html/accessibility)).
+
+## Inline formatting and mysterious gaps
+
+### The gap between inline-block elements
+
+```html
+<span class="pill">A</span>
+<span class="pill">B</span>
+```
+
+The line break between the two tags in the HTML is a whitespace character, and in inline formatting it renders exactly like the space between two words. So you see a 4–5px gap between two inline-blocks that you never wrote anywhere in CSS. The modern fix: make the parent `display: flex` and space items with `gap`.
+
+### The gap under an image
+
+`img` is inline by default and sits on the text **baseline** like a letter. Below the baseline, space is reserved for the descenders of letters such as "g" and "p", and that space stays empty under the image:
+
+```css
+img { display: block; }          /* fix 1: make the image a block */
+img { vertical-align: middle; }  /* fix 2: detach it from the baseline */
+```
+
+## Overflow: when content doesn't fit
+
+If the content is bigger than the box, `overflow` decides what happens:
+
+| Value | Behaviour |
+| --- | --- |
+| `visible` (default) | Content spills out of the box and over the next elements |
+| `hidden` | The excess is clipped, but JavaScript can still scroll it |
+| `clip` | Clipped, with no scrolling possible; **does not create a BFC** |
+| `scroll` | Always shows scrollbars, even when not needed |
+| `auto` | Shows scrollbars only when needed |
+
+`overflow-x` and `overflow-y` can be set separately. Any value except `visible` and `clip` turns the box into a **scroll container**. That matters in the next chapter, because `position: sticky` works relative to the nearest scroll container — an accidental `overflow: hidden` on a parent breaks sticky.
+
+## Logical properties: one CSS for LTR and RTL
+
+On a bilingual site, `margin-left` is the space on the **start** side of English text but on the **end** side of Persian text. Instead of flipping everything for RTL, use **logical properties**, which talk about "start and end" rather than "left and right":
+
+- **inline** = the direction text runs in (horizontal in English and Persian).
+- **block** = the direction lines stack in (vertical).
+- **start / end** = the start and end of that direction; in English start is left, in Persian right.
+
+| Physical | Logical |
+| --- | --- |
+| `margin-left` | `margin-inline-start` |
+| `padding-right` | `padding-inline-end` |
+| `margin-left` + `margin-right` | `margin-inline` |
+| `margin-top` / `margin-bottom` | `margin-block-start` / `margin-block-end` |
+| `width` / `height` | `inline-size` / `block-size` |
+| `left: 0` | `inset-inline-start: 0` |
+| `border-left` | `border-inline-start` |
+| `text-align: left` | `text-align: start` |
+
+```html live
+<style>
+  .note { border-inline-start: 4px solid #2459e0; padding-inline-start: 12px; margin-block: 8px; font: 14px system-ui; }
+</style>
+<p class="note" dir="ltr">In English the blue line is on the left.</p>
+<p class="note" dir="rtl">در فارسی خط آبی سمت راست است.</p>
+```
+
+With logical properties one stylesheet works for both languages; this handbook is built exactly that way.
+
+## Common mistakes
+
+<Callout type="mistake">
+**No `box-sizing: border-box`.** Percentage columns with padding exceed 100% and wrap to the next line.
+</Callout>
+
+<Callout type="mistake">
+**"Fixing" margin collapse with 1px of padding** without understanding why. Either make the parent `display: flow-root` or space with `gap`.
+</Callout>
+
+<Callout type="mistake">
+**Setting `width` on a `span`** and wondering why nothing happens. Inline elements don't accept width or height; make it `inline-block` or `block`.
+</Callout>
+
+<Callout type="mistake">
+**Hiding a menu with `opacity: 0`.** Its links still receive Tab focus and are read by screen readers. Add `visibility: hidden` too.
+</Callout>
+
+<Callout type="mistake">
+**`margin-left` and `padding-right` on a bilingual site.** Everything flips in RTL. Write logical properties.
+</Callout>
+
+## Interview questions
+
+<QA q="Explain the box model. What's the difference between `content-box` and `border-box`?" level="junior" n={1}>
+<Answer>
+
+Every element is a box with four layers: content, padding, border and margin. With `content-box` (the default), `width` is only the content's width and padding and border are **added** to it. With `border-box`, `width` includes content, padding and border, so the width you write is the width on screen.
+
+</Answer>
+<Deep>
+
+Margin is never part of `width`. In `border-box`, if padding and border exceed `width`, the content shrinks to zero (never negative) and the box becomes larger than `width`. The common reset targets `*, *::before, *::after` because `*` doesn't match pseudo-elements.
+
+</Deep>
+<Mistake>
+
+Saying `border-box` includes the margin too.
+
+</Mistake>
+<FollowUp>
+
+What's the advantage of `html { box-sizing: border-box } *, *::before, *::after { box-sizing: inherit }`? (A component can switch `box-sizing` on its root and the whole subtree follows.)
+
+</FollowUp>
+</QA>
+
+<QA q="What is margin collapse and how do you prevent it?" level="mid" n={2}>
+<Answer>
+
+The vertical margins of adjacent blocks in normal flow don't add up; only the larger remains. A first or last child's margin also leaks out of its parent if nothing separates them. To prevent it: create a BFC on the parent (`display: flow-root`), give the parent padding or a border, or use flex/grid with `gap`.
+
+</Answer>
+<Deep>
+
+Collapsing only happens in a block formatting context and only for vertical margins. With negative margins, the largest positive is added to the most negative (`30px` and `-10px` → `20px`). The reason for the design is typography: paragraphs with equal top and bottom margins shouldn't get double gaps.
+
+</Deep>
+<Mistake>
+
+Thinking margins collapse in flexbox too.
+
+</Mistake>
+<FollowUp>
+
+What is a BFC and what creates one?
+
+</FollowUp>
+</QA>
+
+<QA q="What's the difference between `display: none`, `visibility: hidden` and `opacity: 0`?" level="junior" n={3}>
+<Answer>
+
+`display: none` removes the element from layout and the accessibility tree entirely. `visibility: hidden` keeps its space but makes it invisible, unclickable and hidden from screen readers. `opacity: 0` only makes it transparent; it still takes space, receives clicks and focus, and is read by screen readers.
+
+</Answer>
+<Deep>
+
+Performance-wise, changing `display` triggers layout, `visibility` only paint, and `opacity` only compositing on the GPU. For fade animations use `opacity`, and at the end take the element out of interaction with `visibility: hidden` (which transitions discretely).
+
+</Deep>
+<Mistake>
+
+Hiding a menu with `opacity: 0` and forgetting its links still receive Tab focus.
+
+</Mistake>
+<FollowUp>
+
+How do you transition an element in from `display: none`? (`@starting-style` and `transition-behavior: allow-discrete`.)
+
+</FollowUp>
+</QA>
+
+<QA q="Why is there a small gap under an image inside a div?" level="mid" n={4}>
+<Answer>
+
+Because `img` is inline by default and sits on the text baseline. The space below the baseline (for descenders like g) stays empty under the image. Fix: `display: block` or `vertical-align: middle` on the image.
+
+</Answer>
+<Deep>
+
+The size of the gap depends on the parent's `font-size` and `line-height`. `font-size: 0` on the parent also removes it but is a hack. The same inline formatting context causes the gap between inline-blocks.
+
+</Deep>
+<Mistake>
+
+Fixing it with a negative margin or a fixed height on the parent.
+
+</Mistake>
+<FollowUp>
+
+Which elements does `vertical-align` work on? (Only inline, inline-block and table-cell.)
+
+</FollowUp>
+</QA>
+
+## Recap
+
+<Recap>
+
+- Every element is a box with four layers: content, padding (inner, has the background), border, and margin (outer, transparent, can be negative).
+- Shorthands with 1–4 values read clockwise from the top; percentage padding and margin are always relative to the parent's **width**.
+- A border without `border-style` is invisible.
+- `margin-inline: auto` centres a block with a set width horizontally.
+- `box-sizing: border-box` makes `width` include padding and border; nearly every project resets to it.
+- Vertical margins collapse in normal flow; a BFC (`display: flow-root`), flex and grid prevent it.
+- `display` has two parts: outer behaviour (block or inline) and inner (flow, flex, grid).
+- Inline boxes ignore width and height; inline-block sits in the line but accepts sizes.
+- `display: none` removes entirely, `visibility: hidden` keeps the space, `opacity: 0` still gets clicks and focus.
+- On bilingual sites, use logical properties (`margin-inline-start`, `inset-inline-start`).
+
+</Recap>

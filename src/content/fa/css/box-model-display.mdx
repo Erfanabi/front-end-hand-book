@@ -1,0 +1,506 @@
+## هر چیزی در صفحه یک جعبه است
+
+DevTools مرورگر را باز کنید و روی هر Elementی بروید: یک مستطیل رنگی دورش ظاهر می‌شود. در CSS **هر Element یک جعبه مستطیلی** است؛ حتی یک دایره با `border-radius: 50%` یا یک کلمه داخل پاراگراف. مرورگر کل صفحه را با چیدن همین جعبه‌ها کنار و داخل هم می‌سازد.
+
+**Box Model** (مدل جعبه) دو چیز را تعیین می‌کند: این جعبه از چه **لایه‌هایی** ساخته شده، و **اندازه** نهایی‌اش چطور محاسبه می‌شود. تقریباً هر مشکل چیدمانی («چرا این دو ستون کنار هم جا نمی‌شوند؟»، «این فاصله از کجا آمده؟») با فهم دقیق Box Model حل می‌شود.
+
+## چهار لایه جعبه
+
+از داخل به بیرون:
+
+```text
+┌──────────────────────────── margin ────────────────────────────┐
+│   ┌──────────────────────── border ────────────────────────┐   │
+│   │   ┌──────────────────── padding ───────────────────┐   │   │
+│   │   │                                                │   │   │
+│   │   │               content (width × height)         │   │   │
+│   │   │                                                │   │   │
+│   │   └────────────────────────────────────────────────┘   │   │
+│   └────────────────────────────────────────────────────────┘   │
+└────────────────────────────────────────────────────────────────┘
+```
+
+یک تشبیه: یک تابلو نقاشی را تصور کنید. **Content** خود نقاشی است، **Padding** حاشیه سفید دور نقاشی (Passe-partout)، **Border** قاب چوبی، و **Margin** فاصله‌ای که تابلو با تابلوهای دیگر روی دیوار دارد.
+
+| لایه | چیست | پس‌زمینه می‌گیرد؟ | منفی می‌شود؟ |
+| --- | --- | --- | --- |
+| **Content** | محتوای واقعی: متن، عکس، فرزندان | بله | — |
+| **Padding** | فاصله **داخلی** بین محتوا و Border | بله؛ `background` زیر Padding هم کشیده می‌شود | خیر |
+| **Border** | خط دور جعبه | رنگ خودش را دارد | خیر |
+| **Margin** | فاصله **بیرونی** با Elementهای دیگر | خیر؛ همیشه شفاف است | **بله** |
+
+```html live
+<style>
+  .box {
+    width: 180px;
+    padding: 20px;                 /* فاصله داخلی؛ رنگ پس‌زمینه را دارد */
+    border: 6px solid #2459e0;     /* قاب */
+    margin: 24px;                  /* فاصله بیرونی؛ شفاف */
+    background: #e9edfc;
+    font: 14px system-ui;
+  }
+  .wrapper { background: repeating-linear-gradient(45deg, #fff3e0 0 6px, #ffe8cc 6px 12px); display: inline-block; }
+</style>
+<!-- نوارهای نارنجی همان margin است که شفاف است و پس‌زمینه والد از آن دیده می‌شود -->
+<div class="wrapper"><div class="box">محتوا (content)</div></div>
+```
+
+### Padding
+
+فاصله بین محتوا و Border. چهار Property جداگانه دارد (`padding-top`، `padding-right`، `padding-bottom`، `padding-left`) و یک **Shorthand** (نوشتن خلاصه) که بسته به تعداد مقدارها معنی متفاوتی دارد. ترتیب همیشه **ساعتگرد از بالا** است: بالا ← راست ← پایین ← چپ.
+
+| نوشتن | یعنی |
+| --- | --- |
+| `padding: 10px` | هر چهار طرف 10px |
+| `padding: 10px 20px` | بالا و پایین 10px · چپ و راست 20px |
+| `padding: 10px 20px 30px` | بالا 10px · چپ و راست 20px · پایین 30px |
+| `padding: 10px 20px 30px 40px` | بالا 10 · راست 20 · پایین 30 · چپ 40 |
+
+**یک تله مهم:** Padding (و Margin) با **درصد** همیشه نسبت به **عرض** والد محاسبه می‌شود، حتی `padding-top` و `padding-bottom`! این رفتار عجیب یک ترفند قدیمی را ممکن کرد: `padding-top: 56.25%` جعبه‌ای با نسبت ۱۶:۹ می‌سازد. امروز برای این کار `aspect-ratio: 16 / 9` را داریم.
+
+### Border
+
+سه بخش دارد: **ضخامت** (`border-width`)، **سبک** (`border-style`) و **رنگ** (`border-color`). Shorthand آن هر سه را با هم می‌گیرد و ترتیبشان مهم نیست:
+
+```css
+.card { border: 1px solid #e4e6ea; }          /* هر چهار طرف */
+.tab  { border-bottom: 3px solid currentColor; } /* فقط پایین؛ currentColor یعنی همان رنگ متن */
+```
+
+<Callout type="mistake">
+اگر `border-style` را ننویسید، Border **دیده نمی‌شود**، چون مقدار پیش‌فرض آن `none` است. `border: 2px red` هیچ خطی رسم نمی‌کند؛ باید `border: 2px solid red` بنویسید.
+</Callout>
+
+`border-radius` گوشه‌ها را گرد می‌کند و `outline` شبیه Border است ولی **در Layout جا نمی‌گیرد** (روی جعبه‌های اطراف کشیده می‌شود) و برای حلقه فوکوس مناسب است.
+
+### Margin
+
+فاصله بیرونی. Shorthand آن دقیقاً مثل Padding است. سه ویژگی خاص دارد که Padding ندارد:
+
+**۱. مقدار منفی مجاز است.** Margin منفی Element را به سمت مخالف می‌کشد یا آن را روی همسایه‌اش می‌اندازد:
+
+```css
+.avatar-stack img + img { margin-inline-start: -12px; } /* آواتارهای روی هم */
+```
+
+**۲. `auto` فضای خالی را پر می‌کند.** برای یک Block با عرض مشخص، `margin-inline: auto` فضای باقی‌مانده را مساوی بین دو طرف تقسیم می‌کند؛ یعنی **وسط‌چین افقی**:
+
+```html live
+<style>
+  .center { width: 220px; margin-inline: auto; background: #e9edfc; padding: 12px; font: 14px system-ui; text-align: center; }
+</style>
+<div class="center">margin-inline: auto — افقی وسط‌چین</div>
+```
+
+`margin-top: auto` در جریان عادی (Normal Flow) به صفر تبدیل می‌شود و اثری ندارد، ولی در Flexbox و Grid همان کار را عمودی هم انجام می‌دهد (فصل [Flexbox](/css/flexbox)).
+
+**۳. Margin عمودی ممکن است Collapse شود.** یعنی دو Margin کنار هم ادغام شوند. این مهم‌ترین رفتار عجیب Margin است و پایین‌تر بخش کاملی برایش داریم.
+
+## `box-sizing`: عرض شما دقیقاً عرض کدام لایه است؟
+
+اگر بنویسید `width: 200px`، این ۲۰۰ پیکسل عرض **کدام** لایه است؟ جواب به `box-sizing` بستگی دارد:
+
+| مقدار | `width` شامل چیست | عرض روی صفحه برای `width: 200px; padding: 20px; border: 5px` |
+| --- | --- | --- |
+| `content-box` (پیش‌فرض) | فقط Content | 200 + 2×20 + 2×5 = **250px** |
+| `border-box` | Content + Padding + Border | **200px** (Content خودش کوچک می‌شود: 150px) |
+
+```html live
+<style>
+  .box { width: 200px; padding: 20px; border: 5px solid #2459e0; margin-bottom: 10px; background: #e9edfc; font: 14px system-ui; }
+  .content { box-sizing: content-box; }
+  .border  { box-sizing: border-box; }
+</style>
+<div class="box content">content-box — عرض واقعی 250px</div>
+<div class="box border">border-box — عرض واقعی 200px</div>
+```
+
+### چرا همه پروژه‌ها `border-box` را انتخاب می‌کنند؟
+
+فرض کنید دو ستون کنار هم می‌خواهید، هر کدام `width: 50%` با `padding: 20px`. با `content-box`، عرض هر ستون `50% + 40px` می‌شود و جمعشان از ۱۰۰٪ بیشتر است؛ ستون دوم به خط بعد می‌رود. با `border-box`، عرضی که نوشته‌اید همان عرضی است که روی صفحه می‌بینید و Padding از داخل کم می‌شود. به همین دلیل تقریباً همه پروژه‌ها این Reset را دارند:
+
+```css
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+```
+
+`::before` و `::after` جداگانه نوشته شده‌اند چون `*` با Pseudo-elementها منطبق نمی‌شود.
+
+## اندازه جعبه: `width`، `height`، min و max
+
+**عرض یک Block به‌صورت پیش‌فرض `auto` است**، یعنی «همه عرض در دسترس والد را بگیر». **ارتفاعش هم `auto` است**، یعنی «به اندازه محتوا». این دو پیش‌فرض متفاوت دلیل خیلی از رفتارهای چیدمانی‌اند.
+
+| Property | کار |
+| --- | --- |
+| `width` / `height` | اندازه دقیق |
+| `min-width` / `min-height` | حداقل؛ جعبه از این کوچک‌تر نمی‌شود |
+| `max-width` / `max-height` | حداکثر؛ جعبه از این بزرگ‌تر نمی‌شود |
+| `aspect-ratio` | نسبت عرض به ارتفاع، مثل `16 / 9` |
+
+اگر با هم تناقض داشته باشند، `min` از `max` قوی‌تر است و `max` از `width`.
+
+```css
+/* الگوی رایج کانتینر صفحه: تا 1200px بزرگ می‌شود، روی موبایل تمام عرض است */
+.container { max-width: 1200px; margin-inline: auto; padding-inline: 16px; }
+
+/* عکس هیچ‌وقت از ظرفش بیرون نمی‌زند */
+img { max-width: 100%; height: auto; }
+```
+
+<Callout type="tip">
+برای ظرف‌هایی که متن دارند `height` ثابت ننویسید؛ اگر متن بیشتر شود (ترجمه، فونت بزرگ‌تر کاربر) از جعبه بیرون می‌زند. `min-height` بنویسید تا جعبه در صورت نیاز بزرگ شود.
+</Callout>
+
+## Margin Collapse: وقتی ۲۴ + ۱۶ برابر ۲۴ می‌شود
+
+یکی از گیج‌کننده‌ترین رفتارهای CSS: **Margin عمودی** دو Block مجاور با هم **جمع نمی‌شوند**؛ فقط **بزرگ‌تر** باقی می‌ماند.
+
+```css
+h2 { margin-bottom: 24px; }
+p  { margin-top: 16px; }
+/* فاصله بین h2 و p: برابر 24px، نه 40px */
+```
+
+**چرا این‌طور طراحی شد؟** به خاطر تایپوگرافی. اگر هر پاراگراف `margin: 1em 0` داشته باشد، بدون Collapse فاصله بین دو پاراگراف `2em` می‌شد ولی فاصله اولین پاراگراف با بالای صفحه `1em`. با Collapse فاصله‌ها یکدست می‌مانند.
+
+### سه حالت Collapse
+
+**۱. هم‌نیاهای مجاور:** Margin پایین اولی و Margin بالای دومی (مثال بالا).
+
+**۲. والد و اولین یا آخرین فرزند:** اگر بین Margin والد و فرزند هیچ چیزی (Border، Padding، متن Inline) نباشد، Margin فرزند **از والد بیرون می‌زند**. این گیج‌کننده‌ترین حالت است: به فرزند `margin-top` می‌دهید ولی والد پایین می‌رود!
+
+```html live
+<style>
+  .parent { background: #e9edfc; font: 14px system-ui; }
+  .child  { margin-top: 40px; background: #ffd8a8; }
+  .fixed  { display: flow-root; } /* یک BFC جدید → دیگر Collapse نمی‌شود */
+</style>
+<div class="parent"><div class="child">margin-top فرزند از والد بیرون زده؛ پس‌زمینه آبی والد بالای آن نیست</div></div>
+<hr />
+<div class="parent fixed"><div class="child">با display: flow-root، margin داخل والد می‌ماند</div></div>
+```
+
+**۳. Block خالی:** اگر Block هیچ محتوا، Padding، Border یا ارتفاعی نداشته باشد، Margin بالا و پایین خودش با هم ادغام می‌شوند.
+
+**Margin منفی:** اگر یکی مثبت و یکی منفی باشد، با هم جمع می‌شوند (`30px` و `-10px` ← `20px`). اگر هر دو منفی باشند، منفی‌ترین می‌ماند.
+
+### Collapse کی اتفاق **نمی‌افتد**؟
+
+- Margin **افقی** هیچ‌وقت Collapse نمی‌شود.
+- Itemهای Flex و Grid؛ Marginشان هرگز Collapse نمی‌شود.
+- Elementهای `float` و `position: absolute` یا `fixed`.
+- وقتی بین والد و فرزند Padding یا Border باشد.
+- وقتی والد یک **BFC** جدید بسازد (بخش بعد).
+
+<Callout type="tip">
+راه امروزی دوری از دردسر Margin Collapse: فاصله بین فرزندان را با `gap` در Flex یا Grid بدهید، یا قانون «Margin فقط در یک جهت» را رعایت کنید (مثلاً همه Elementها فقط `margin-block-end` داشته باشند).
+</Callout>
+
+## Formatting Context و BFC
+
+**Formatting Context** (بافت قالب‌بندی) قوانینی است که تعیین می‌کند جعبه‌های داخل یک ظرف چطور چیده شوند. چند نوع دارد:
+
+- **Block Formatting Context (BFC):** جعبه‌ها **زیر هم** چیده می‌شوند و هر کدام تمام عرض را می‌گیرند.
+- **Inline Formatting Context:** جعبه‌ها **پشت سر هم در خط** چیده می‌شوند، مثل کلمه‌های یک پاراگراف، و در صورت نیاز به خط بعد می‌روند.
+- **Flex** و **Grid Formatting Context:** قوانین Flexbox و Grid.
+
+**BFC جدید** یعنی یک ظرف که مثل یک «دنیای مستقل» رفتار می‌کند. سه اثر مهم دارد:
+
+1. Margin فرزندانش از آن بیرون نمی‌زند (Collapse با والد متوقف می‌شود).
+2. Elementهای `float` داخلش را در بر می‌گیرد؛ ارتفاع ظرف صفر نمی‌شود.
+3. کنار یک `float` قرار نمی‌گیرد که زیرش برود؛ کنارش جا می‌شود.
+
+**چه چیزهایی BFC جدید می‌سازند؟** `display: flow-root` (تمیزترین راه؛ فقط برای همین کار ساخته شده)، `overflow` به‌جز `visible` و `clip`، `display: inline-block`، `float`، `position: absolute` یا `fixed`، و Itemهای Flex و Grid.
+
+## `display`: جعبه چطور رفتار کند؟
+
+Property `display` در واقع **دو** چیز را تعیین می‌کند:
+
+- **Outer display** (رفتار بیرونی): این جعبه نسبت به هم‌نیاهایش چطور رفتار کند؟ **block** (خط جدید شروع کند و تمام عرض را بگیرد) یا **inline** (در جریان متن کنار بقیه بنشیند).
+- **Inner display** (رفتار درونی): فرزندانش را چطور بچیند؟ `flow` (عادی)، `flex`، `grid`، `table` یا `flow-root`.
+
+Syntax دو مقداری این را صریح می‌کند، و مقدارهای آشنای تک‌کلمه‌ای در واقع خلاصه همین‌ها هستند:
+
+| مقدار آشنا | معادل دو مقداری | یعنی |
+| --- | --- | --- |
+| `block` | `block flow` | بیرون block، درون عادی |
+| `inline` | `inline flow` | بیرون inline، درون عادی |
+| `inline-block` | `inline flow-root` | بیرون inline، درون یک BFC جدید |
+| `flex` | `block flex` | بیرون block، فرزندان با Flexbox |
+| `inline-flex` | `inline flex` | بیرون inline، فرزندان با Flexbox |
+| `grid` | `block grid` | بیرون block، فرزندان با Grid |
+| `flow-root` | `block flow-root` | بیرون block، درون یک BFC جدید |
+
+### `block`، `inline` و `inline-block` کنار هم
+
+```html live
+<style>
+  .demo span, .demo div { background: #e9edfc; border: 1px solid #2459e0; padding: 8px; margin: 8px; width: 120px; height: 40px; font: 13px system-ui; }
+  .b  { display: block; }
+  .i  { display: inline; }
+  .ib { display: inline-block; }
+</style>
+<div class="demo">
+  <span class="b">block</span><span class="b">block</span>
+  <hr />
+  متن قبل <span class="i">inline</span> متن وسط <span class="i">inline</span> متن بعد
+  <hr />
+  متن قبل <span class="ib">inline-block</span> متن وسط <span class="ib">inline-block</span>
+</div>
+```
+
+به نتیجه دقت کنید:
+
+- **block**: هر کدام در خط جدید و `width` و `height` اعمال شده است.
+- **inline**: کنار متن نشسته و **`width` و `height` نادیده گرفته شده‌اند**. Padding عمودی رسم شده ولی خطوط بالا و پایین را کنار نزده (روی آن‌ها افتاده) و Margin عمودی هیچ اثری ندارد.
+- **inline-block**: بهترین هر دو؛ کنار متن می‌نشیند ولی `width`، `height`، Padding و Margin کامل اعمال می‌شوند. برای دکمه و Badge مناسب است.
+
+| مقدار | خط جدید؟ | `width`/`height` | Margin/Padding عمودی | کاربرد |
+| --- | --- | --- | --- | --- |
+| `block` | بله | اعمال می‌شود | کامل | بخش‌ها، پاراگراف، کارت |
+| `inline` | خیر | **نادیده** | Padding رسم می‌شود ولی جا باز نمی‌کند؛ Margin بی‌اثر | متن، لینک، `strong` |
+| `inline-block` | خیر | اعمال می‌شود | کامل | دکمه، Badge |
+| `flex` / `grid` | بله | اعمال می‌شود | کامل | چیدمان |
+| `flow-root` | بله | اعمال می‌شود | کامل | BFC جدید؛ جلوی Collapse و float |
+| `none` | — | — | — | حذف کامل از صفحه |
+| `contents` | — | — | — | جعبه خودش حذف می‌شود، فرزندانش می‌مانند |
+
+هر تگ HTML یک `display` پیش‌فرض از Stylesheet مرورگر دارد: `div`، `p`، `h1` تا `h6`، `section` و `ul` به‌صورت block هستند و `span`، `a`، `strong`، `img` و `input` به‌صورت inline. با CSS می‌توانید هر کدام را عوض کنید؛ معنی HTML (Semantic) عوض نمی‌شود.
+
+### `display: contents`
+
+جعبه خود Element را حذف می‌کند ولی فرزندانش سر جایشان می‌مانند، انگار مستقیم فرزند پدربزرگ‌اند. وقتی یک Wrapper (مثلاً از یک Component) بین Grid و Itemهایش فاصله انداخته، به کار می‌آید:
+
+```css
+.grid { display: grid; grid-template-columns: repeat(3, 1fr); }
+.grid > .group { display: contents; } /* فرزندان group مستقیماً Grid Item می‌شوند */
+```
+
+<Callout type="warning">
+`display: contents` روی Elementهای معنایی (`button`، `ul`، `table`) در بعضی مرورگرها نقش آن‌ها را از Accessibility Tree حذف می‌کرد. بیشتر این باگ‌ها برطرف شده‌اند، ولی روی Elementهای تعاملی با احتیاط استفاده کنید.
+</Callout>
+
+## سه راه پنهان کردن: `display: none`، `visibility: hidden` و `opacity: 0`
+
+هر سه Element را از دید پنهان می‌کنند، ولی رفتارشان کاملاً فرق دارد:
+
+| | `display: none` | `visibility: hidden` | `opacity: 0` |
+| --- | --- | --- | --- |
+| فضا اشغال می‌کند؟ | خیر | بله | بله |
+| کلیک و فوکوس می‌گیرد؟ | خیر | خیر | **بله** |
+| Screen Reader می‌خواند؟ | خیر | خیر | **بله** |
+| فرزند می‌تواند دیده شود؟ | خیر | بله (`visibility: visible` روی فرزند) | خیر |
+| Transition دارد؟ | خیر (مگر با `transition-behavior: allow-discrete`) | بله، گسسته | بله، نرم |
+| هزینه تغییر | Layout دوباره | فقط Paint | فقط Composite (ارزان‌ترین) |
+
+```html live
+<style>
+  .row { display: flex; gap: 8px; font: 13px system-ui; margin-bottom: 6px; }
+  .row span { padding: 8px; background: #e9edfc; border: 1px solid #2459e0; }
+  .n { display: none; } .v { visibility: hidden; } .o { opacity: 0; }
+</style>
+<div class="row"><span>A</span><span class="n">display:none</span><span>C</span></div>
+<div class="row"><span>A</span><span class="v">visibility:hidden</span><span>C</span></div>
+<div class="row"><span>A</span><span class="o">opacity:0</span><span>C</span></div>
+```
+
+**قاعده انتخاب:** برای حذف واقعی `display: none`. برای انیمیشن محو شدن `opacity` و در پایان انیمیشن `visibility: hidden` تا Element از تعامل خارج شود. برای متنی که فقط Screen Reader باید بخواند (مثل برچسب یک دکمه آیکونی) کلاس `.sr-only` (فصل [Accessibility](/html/accessibility)).
+
+## Inline Formatting و فاصله‌های مرموز
+
+### فاصله بین Elementهای inline-block
+
+```html
+<span class="pill">A</span>
+<span class="pill">B</span>
+```
+
+خط جدید بین دو تگ در HTML یک کاراکتر فاصله (Whitespace) است و در Inline Formatting دقیقاً مثل فاصله بین دو کلمه رندر می‌شود. پس بین دو inline-block یک فاصله چهار پنج پیکسلی می‌بینید که در CSS هیچ‌جا ننوشته‌اید. راه حل امروزی: والد را `display: flex` کنید و با `gap` فاصله بدهید.
+
+### فاصله زیر عکس
+
+`img` به‌صورت پیش‌فرض inline است و مثل یک حرف روی **Baseline** (خط کرسی متن) می‌نشیند. زیر Baseline فضایی برای دنباله حروفی مثل «g» و «p» (و در فارسی «ی» و «ج») رزرو شده که زیر عکس خالی می‌ماند:
+
+```css
+img { display: block; }          /* راه ۱: عکس را block کنید */
+img { vertical-align: middle; }  /* راه ۲: از Baseline جدایش کنید */
+```
+
+## Overflow: وقتی محتوا جا نمی‌شود
+
+اگر محتوا از جعبه بزرگ‌تر باشد، `overflow` تعیین می‌کند چه اتفاقی بیفتد:
+
+| مقدار | رفتار |
+| --- | --- |
+| `visible` (پیش‌فرض) | محتوا از جعبه بیرون می‌زند و روی Elementهای بعدی می‌افتد |
+| `hidden` | اضافه بریده می‌شود؛ ولی با JavaScript هنوز می‌شود اسکرولش کرد |
+| `clip` | بریده می‌شود و اسکرول هم ممکن نیست؛ **BFC نمی‌سازد** |
+| `scroll` | همیشه Scrollbar نشان می‌دهد، حتی اگر لازم نباشد |
+| `auto` | فقط اگر لازم بود Scrollbar نشان می‌دهد |
+
+`overflow-x` و `overflow-y` جداگانه هم قابل تنظیم‌اند. هر مقداری به‌جز `visible` و `clip` جعبه را به یک **Scroll Container** تبدیل می‌کند. این نکته در فصل بعد مهم می‌شود، چون `position: sticky` نسبت به نزدیک‌ترین Scroll Container کار می‌کند و یک `overflow: hidden` ناخواسته روی والد، Sticky را خراب می‌کند.
+
+## Logical Properties: یک CSS برای فارسی و انگلیسی
+
+در یک سایت دوزبانه، `margin-left` در انگلیسی فاصله از سمت **شروع** متن است ولی در فارسی فاصله از سمت **پایان**. به‌جای اینکه برای RTL همه چیز را برعکس کنید، از **Logical Properties** استفاده کنید که به جای «چپ و راست» از «شروع و پایان» حرف می‌زنند:
+
+- **inline** = جهتی که متن در آن پیش می‌رود (افقی در فارسی و انگلیسی).
+- **block** = جهتی که خط‌ها زیر هم قرار می‌گیرند (عمودی).
+- **start / end** = شروع و پایان همان جهت؛ در فارسی start یعنی راست، در انگلیسی چپ.
+
+| فیزیکی | منطقی |
+| --- | --- |
+| `margin-left` | `margin-inline-start` |
+| `padding-right` | `padding-inline-end` |
+| `margin-left` + `margin-right` | `margin-inline` |
+| `margin-top` / `margin-bottom` | `margin-block-start` / `margin-block-end` |
+| `width` / `height` | `inline-size` / `block-size` |
+| `left: 0` | `inset-inline-start: 0` |
+| `border-left` | `border-inline-start` |
+| `text-align: left` | `text-align: start` |
+
+```html live
+<style>
+  .note { border-inline-start: 4px solid #2459e0; padding-inline-start: 12px; margin-block: 8px; font: 14px system-ui; }
+</style>
+<p class="note" dir="rtl">در فارسی خط آبی سمت راست است.</p>
+<p class="note" dir="ltr">In English the blue line is on the left.</p>
+```
+
+با Logical Properties یک Stylesheet برای هر دو زبان کار می‌کند؛ همین هندبوک هم با همین روش ساخته شده است.
+
+## اشتباهات رایج
+
+<Callout type="mistake">
+**نداشتن `box-sizing: border-box`.** ستون‌های درصدی با Padding از ۱۰۰٪ بیشتر می‌شوند و به خط بعد می‌روند.
+</Callout>
+
+<Callout type="mistake">
+**«حل» Margin Collapse با یک Padding یک پیکسلی** بدون فهمیدن علت. یا والد را `display: flow-root` کنید یا با `gap` فاصله بدهید.
+</Callout>
+
+<Callout type="mistake">
+**`width` روی یک `span`** و تعجب از بی‌اثر بودنش. Elementهای inline عرض و ارتفاع نمی‌پذیرند؛ `inline-block` یا `block` کنید.
+</Callout>
+
+<Callout type="mistake">
+**پنهان کردن منو با `opacity: 0`.** لینک‌هایش همچنان با Tab فوکوس می‌گیرند و Screen Reader آن‌ها را می‌خواند. `visibility: hidden` را هم اضافه کنید.
+</Callout>
+
+<Callout type="mistake">
+**`margin-left` و `padding-right` در سایت دوزبانه.** در RTL همه چیز برعکس می‌شود. Logical Properties بنویسید.
+</Callout>
+
+## سوالات مصاحبه
+
+<QA q="Box Model را توضیح دهید. تفاوت `content-box` و `border-box` چیست؟" level="junior" n={1}>
+<Answer>
+
+هر Element یک جعبه با چهار لایه است: Content، Padding، Border و Margin. با `content-box` (پیش‌فرض)، `width` فقط عرض Content است و Padding و Border به آن **اضافه** می‌شوند. با `border-box`، `width` شامل Content و Padding و Border است، پس عرضی که می‌نویسید همان عرض روی صفحه است.
+
+</Answer>
+<Deep>
+
+Margin هیچ‌وقت جزو `width` نیست. در `border-box` اگر Padding و Border از `width` بیشتر شوند، Content به صفر می‌رسد (منفی نمی‌شود) و جعبه از `width` بزرگ‌تر می‌شود. Reset رایج روی `*, *::before, *::after` نوشته می‌شود چون `*` با Pseudo-elementها منطبق نیست.
+
+</Deep>
+<Mistake>
+
+گفتن اینکه `border-box` Margin را هم شامل می‌شود.
+
+</Mistake>
+<FollowUp>
+
+الگوی `html { box-sizing: border-box } *, *::before, *::after { box-sizing: inherit }` چه مزیتی دارد؟ (یک Component می‌تواند با تغییر `box-sizing` روی ریشه‌اش، کل زیرمجموعه خود را عوض کند.)
+
+</FollowUp>
+</QA>
+
+<QA q="Margin Collapse چیست و چطور جلویش را می‌گیرید؟" level="mid" n={2}>
+<Answer>
+
+Margin عمودی Blockهای مجاور در جریان عادی جمع نمی‌شوند و فقط بزرگ‌ترشان باقی می‌ماند. Margin اولین یا آخرین فرزند هم اگر چیزی بین آن و والد نباشد، از والد بیرون می‌زند. راه‌های جلوگیری: ساختن BFC روی والد (`display: flow-root`)، دادن Padding یا Border به والد، یا استفاده از Flex/Grid با `gap`.
+
+</Answer>
+<Deep>
+
+Collapse فقط در Block Formatting Context و فقط برای Margin عمودی رخ می‌دهد. با Margin منفی، بزرگ‌ترین مثبت با منفی‌ترین منفی جمع می‌شود (`30px` و `-10px` ← `20px`). دلیل طراحی‌اش تایپوگرافی است: فاصله بین پاراگراف‌هایی با Margin بالا و پایین یکسان دو برابر نشود.
+
+</Deep>
+<Mistake>
+
+فکر کردن اینکه Margin Collapse در Flexbox هم رخ می‌دهد.
+
+</Mistake>
+<FollowUp>
+
+BFC چیست و چه چیزهایی آن را می‌سازند؟
+
+</FollowUp>
+</QA>
+
+<QA q="تفاوت `display: none`، `visibility: hidden` و `opacity: 0` چیست؟" level="junior" n={3}>
+<Answer>
+
+`display: none` Element را کاملاً از Layout و Accessibility Tree حذف می‌کند. `visibility: hidden` جایش را نگه می‌دارد ولی نامرئی، غیرقابل کلیک و پنهان از Screen Reader است. `opacity: 0` فقط شفافش می‌کند؛ هنوز جا دارد، کلیک و فوکوس می‌گیرد و Screen Reader آن را می‌خواند.
+
+</Answer>
+<Deep>
+
+از نظر Performance، تغییر `display` باعث Layout دوباره می‌شود، `visibility` فقط Paint و `opacity` فقط Composite روی GPU. برای انیمیشن محو شدن از `opacity` استفاده کنید و در پایان با `visibility: hidden` (که در Transition گسسته رفتار می‌کند) Element را از تعامل خارج کنید.
+
+</Deep>
+<Mistake>
+
+پنهان کردن منو با `opacity: 0` و فراموش کردن اینکه لینک‌هایش هنوز با Tab فوکوس می‌گیرند.
+
+</Mistake>
+<FollowUp>
+
+چطور Elementی را از `display: none` با Transition نمایش می‌دهید؟ (`@starting-style` و `transition-behavior: allow-discrete`.)
+
+</FollowUp>
+</QA>
+
+<QA q="چرا زیر عکسی که داخل یک div است فاصله کوچکی دیده می‌شود؟" level="mid" n={4}>
+<Answer>
+
+چون `img` به‌صورت پیش‌فرض inline است و روی Baseline خط متن می‌نشیند. فضای زیر Baseline (برای دنباله حروفی مثل g) زیر عکس خالی می‌ماند. راه حل: `display: block` یا `vertical-align: middle` روی عکس.
+
+</Answer>
+<Deep>
+
+اندازه این فاصله به `font-size` و `line-height` والد بستگی دارد. `font-size: 0` روی والد هم حذفش می‌کند ولی یک Hack است. همین Inline Formatting Context باعث فاصله بین inline-blockها هم می‌شود.
+
+</Deep>
+<Mistake>
+
+حل مشکل با Margin منفی یا ارتفاع ثابت برای والد.
+
+</Mistake>
+<FollowUp>
+
+`vertical-align` روی چه Elementهایی کار می‌کند؟ (فقط inline، inline-block و table-cell.)
+
+</FollowUp>
+</QA>
+
+## جمع‌بندی
+
+<Recap>
+
+- هر Element یک جعبه با چهار لایه است: Content، Padding (داخلی، رنگ پس‌زمینه را دارد)، Border و Margin (بیرونی، شفاف، می‌تواند منفی باشد).
+- Shorthand با ۱ تا ۴ مقدار ساعتگرد از بالا خوانده می‌شود؛ Padding و Margin درصدی همیشه نسبت به **عرض** والد‌اند.
+- Border بدون `border-style` دیده نمی‌شود.
+- `margin-inline: auto` یک Block با عرض مشخص را افقی وسط‌چین می‌کند.
+- `box-sizing: border-box` باعث می‌شود `width` شامل Padding و Border باشد؛ تقریباً همه پروژه‌ها آن را Reset می‌کنند.
+- Margin عمودی در جریان عادی Collapse می‌شود؛ BFC (`display: flow-root`)، Flex و Grid جلوی آن را می‌گیرند.
+- `display` دو بخش دارد: رفتار بیرونی (block یا inline) و درونی (flow، flex، grid).
+- inline عرض و ارتفاع نمی‌پذیرد؛ inline-block در خط می‌نشیند ولی اندازه می‌پذیرد.
+- `display: none` حذف کامل است، `visibility: hidden` جا را نگه می‌دارد، `opacity: 0` هنوز کلیک و فوکوس می‌گیرد.
+- برای سایت دوزبانه Logical Properties (`margin-inline-start`، `inset-inline-start`) بنویسید.
+
+</Recap>
