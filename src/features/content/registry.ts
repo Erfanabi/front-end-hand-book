@@ -273,6 +273,38 @@ const descriptions: Record<string, Localized> = {
     fa: 'هزینه هر تغییر CSS؛ Reflow و Repaint و Composite، انیمیشن روان، will-change و contain.',
     en: 'What each CSS change costs: reflow, repaint and composite, smooth animation, will-change and contain.',
   },
+  'javascript/fundamentals': {
+    fa: 'JavaScript دقیقاً چیست، ECMAScript چه نقشی دارد، Engine کد را چطور اجرا می‌کند و Runtime چه چیزی اضافه می‌کند.',
+    en: 'What JavaScript really is, what ECMAScript is, how an engine runs your code and what a runtime adds.',
+  },
+  'javascript/variables-tdz': {
+    fa: 'تفاوت واقعی var و let و const، Block Scope، Temporal Dead Zone و اینکه const دقیقاً چه چیزی را ثابت می‌کند.',
+    en: 'The real differences between var, let and const, block scope, the temporal dead zone and what const actually freezes.',
+  },
+  'javascript/execution-context': {
+    fa: 'موتور قبل از اجرای کد شما چه کار می‌کند؛ Execution Context، Lexical Environment و Hoisting.',
+    en: 'What the engine does before running your code: execution contexts, lexical environments and hoisting.',
+  },
+  'javascript/scope-closures': {
+    fa: 'هر متغیر کجا دیده می‌شود و چرا یک تابع متغیرهای بیرونش را به یاد می‌آورد؛ Scope Chain و Closure.',
+    en: 'Where each variable is visible and why a function remembers its outer variables: the scope chain and closures.',
+  },
+  'javascript/types-coercion': {
+    fa: 'هشت Type زبان، Primitive در برابر Reference، تبدیل نوع ضمنی و قواعد دقیق == و ===.',
+    en: 'The eight types, primitives vs references, implicit conversion and the exact rules of == and ===.',
+  },
+  'javascript/objects-prototypes': {
+    fa: 'Object از صفر: Property، Descriptor، Getter و Setter، کپی کردن، و زنجیره Prototype.',
+    en: 'Objects from scratch: properties, descriptors, getters and setters, copying, and the prototype chain.',
+  },
+  'javascript/classes': {
+    fa: 'class در JavaScript پشت صحنه چیست؛ constructor، ارث‌بری، super، فیلدهای خصوصی و static.',
+    en: 'What a JavaScript class is under the hood: constructors, inheritance, super, private fields and static members.',
+  },
+  'javascript/this-functions': {
+    fa: 'روش‌های تعریف تابع، پارامترها، Arrow Function و چهار قانون تعیین مقدار this؛ call و apply و bind.',
+    en: 'Ways to define functions, parameters, arrow functions and the four rules that decide this; call, apply and bind.',
+  },
 }
 
 for (const part of parts) {
