@@ -305,6 +305,46 @@ const descriptions: Record<string, Localized> = {
     fa: 'روش‌های تعریف تابع، پارامترها، Arrow Function و چهار قانون تعیین مقدار this؛ call و apply و bind.',
     en: 'Ways to define functions, parameters, arrow functions and the four rules that decide this; call, apply and bind.',
   },
+  'javascript/arrays': {
+    fa: 'همه متدهای آرایه با پارامترها و خروجی؛ کدام آرایه را تغییر می‌دهد، map و filter و reduce و sort.',
+    en: 'Every array method with its parameters and return value: which ones mutate, map, filter, reduce and sort.',
+  },
+  'javascript/strings': {
+    fa: 'رشته‌ها و Unicode، Template Literal و همه متدهای پرکاربرد رشته با مثال.',
+    en: 'Strings and Unicode, template literals and every commonly used string method, with examples.',
+  },
+  'javascript/collections': {
+    fa: 'Map و Set در برابر Object و Array؛ WeakMap، WeakSet و WeakRef و نقششان در مدیریت حافظه.',
+    en: 'Map and Set vs objects and arrays; WeakMap, WeakSet and WeakRef and how they help with memory.',
+  },
+  'javascript/iterators-generators': {
+    fa: 'Symbol چیست، پروتکل Iterator، for...of از درون، و Generatorها با yield.',
+    en: 'What symbols are, the iterator protocol, for...of from the inside, and generators with yield.',
+  },
+  'javascript/proxy-reflect': {
+    fa: 'رهگیری عملیات روی Object با Proxy، همه Trapها، Reflect و کاربردهای واقعی مثل Validation و Reactivity.',
+    en: 'Intercepting object operations with Proxy, every trap, Reflect and real uses such as validation and reactivity.',
+  },
+  'javascript/event-loop': {
+    fa: 'JavaScript تک‌نخی چطور چند کار را هم‌زمان مدیریت می‌کند؛ Call Stack، Task و Microtask و Rendering.',
+    en: 'How single-threaded JavaScript handles concurrent work: the call stack, tasks, microtasks and rendering.',
+  },
+  'javascript/async': {
+    fa: 'از Callback تا Promise و async/await؛ حالت‌های Promise، زنجیره then، مدیریت خطا و ترکیب Promiseها.',
+    en: 'From callbacks to promises and async/await: promise states, then-chains, error handling and combinators.',
+  },
+  'javascript/memory-gc': {
+    fa: 'داده‌ها کجا ذخیره می‌شوند، Garbage Collector چطور حافظه را آزاد می‌کند و Memory Leak از کجا می‌آید.',
+    en: 'Where data lives, how the garbage collector frees memory and where memory leaks come from.',
+  },
+  'javascript/modules': {
+    fa: 'چرا ماژول لازم داریم؛ import و export، Live Binding، Dynamic Import و تفاوت ES Modules با CommonJS.',
+    en: 'Why we need modules: import and export, live bindings, dynamic import and ES modules vs CommonJS.',
+  },
+  'javascript/errors': {
+    fa: 'انواع خطا، try/catch/finally، ساختن Error سفارشی، خطا در کد Async و مدیریت خطای سراسری.',
+    en: 'Error types, try/catch/finally, custom errors, errors in async code and global error handling.',
+  },
 }
 
 for (const part of parts) {
