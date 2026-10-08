@@ -1,0 +1,486 @@
+## مسئله: تابعی که با هر نوعی کار کند ولی نوع را گم نکند
+
+فرض کنید یک تابع ساده می‌خواهید که اولین عضو یک آرایه را برگرداند. این تابع منطقش برای آرایه عدد، آرایه رشته و آرایه کاربر **دقیقاً یکی** است. چطور Typeش را بنویسیم؟
+
+**تلاش اول: یک نسخه برای هر نوع.** کار می‌کند ولی کد تکراری است و برای هر نوع جدید باید یک تابع دیگر بنویسید:
+
+```ts
+function firstNumber(arr: number[]): number | undefined { return arr[0]; }
+function firstString(arr: string[]): string | undefined { return arr[0]; }
+// firstUser، firstProduct، ... 😩
+```
+
+**تلاش دوم: `any`.** یک تابع کافی است، ولی اطلاعات نوع **گم می‌شود**:
+
+```ts
+function first(arr: any[]): any {
+  return arr[0];
+}
+
+const n = first([1, 2, 3]); // n: any ← TypeScript دیگر نمی‌داند این عدد است
+n.toUpperCase();            // هیچ خطایی نمی‌دهد و در زمان اجرا کرش می‌کند 💥
+```
+
+چیزی که واقعاً می‌خواهیم این است: «نوع خروجی **همان** نوع اعضای آرایه ورودی است، هر چه که باشد.» یعنی یک **رابطه** بین ورودی و خروجی. این دقیقاً کاری است که **Generic** (جنریک؛ نوع پارامتری) انجام می‌دهد.
+
+## Generic چیست؟
+
+یک تابع معمولی **پارامتر مقدار** می‌گیرد: جای خالی‌ای برای یک مقدار که موقع صدا زدن پر می‌شود. یک تابع Generic علاوه بر آن **پارامتر نوع** (Type Parameter) هم می‌گیرد: جای خالی‌ای برای یک **نوع** که موقع صدا زدن پر می‌شود.
+
+```ts
+//            ↓ پارامتر نوع: «اسم این نوع را T می‌گذارم»
+function first<T>(arr: T[]): T | undefined {
+  //                   ↑ ورودی: آرایه‌ای از T   ↑ خروجی: یک T (یا undefined)
+  return arr[0];
+}
+
+const n = first([1, 2, 3]);      // T = number  → n: number | undefined
+const s = first(["a", "b"]);     // T = string  → s: string | undefined
+const u = first([{ id: 1 }]);    // T = { id: number }
+```
+
+`<T>` را این‌طور بخوانید: «این تابع با یک نوع به اسم T کار می‌کند که الان نمی‌دانم چیست؛ هر کس صدایم بزند تعیینش می‌کند.» حالا TypeScript می‌داند خروجی از همان نوع ورودی است و `n.toUpperCase()` خطای کامپایل می‌دهد.
+
+| | پارامتر مقدار | پارامتر نوع |
+| --- | --- | --- |
+| کجا نوشته می‌شود | داخل `( )` | داخل `< >` |
+| چه چیزی جایش می‌نشیند | یک مقدار (`5`، `"hi"`) | یک نوع (`number`، `User`) |
+| چه زمانی پر می‌شود | زمان اجرا | زمان کامپایل |
+| بعد از کامپایل | باقی می‌ماند | **کاملاً پاک می‌شود** |
+
+## پر شدن T: استنتاج (Inference) یا صریح
+
+دو راه برای تعیین T هست.
+
+**۱. استنتاج (معمولاً همین کافی است).** TypeScript از روی آرگومان‌ها T را پیدا می‌کند:
+
+```ts
+function identity<T>(value: T): T {
+  return value;
+}
+
+const a = identity(42);      // T = 42 (یک Literal Type؛ چون مقدار ثابت است)
+let text = "hi";
+const b = identity(text);    // T = string (چون text یک let است و ممکن است عوض شود)
+```
+
+**۲. صریح.** خودتان نوع را داخل `< >` موقع صدا زدن می‌نویسید:
+
+```ts
+const c = identity<number>(42);   // ✓
+const d = identity<number>("x");  // ❌ Argument of type 'string' is not assignable to parameter of type 'number'.
+```
+
+چه زمانی صریح بنویسیم؟ وقتی TypeScript از آرگومان نمی‌تواند نوع درست را حدس بزند. مثال کلاسیک `useState` در React است:
+
+```ts
+const [user, setUser] = useState(null);
+// T = null ← بعداً setUser({ name: "Sara" }) خطا می‌دهد
+
+const [user2, setUser2] = useState<User | null>(null);
+// ✓ T = User | null
+```
+
+### پشت صحنه: TypeScript چطور T را پیدا می‌کند
+
+<Steps>
+<Step title="امضا را با آرگومان‌ها مقایسه می‌کند">
+برای `first([1, 2, 3])`، امضا می‌گوید پارامتر از نوع `T[]` است و آرگومان از نوع `number[]`.
+</Step>
+<Step title="T را جایگزین می‌کند">
+`T[]` باید با `number[]` جور شود، پس `T = number`. اگر چند جا T باشد، از همه آن‌ها شاهد جمع می‌کند (برای `first([1, "a"])` نتیجه `string | number` است).
+</Step>
+<Step title="کل امضا را با T جدید بازنویسی می‌کند">
+امضای این صدا زدن می‌شود `(arr: number[]) => number | undefined`. بررسی آرگومان‌ها و نوع خروجی با همین نسخه انجام می‌شود.
+</Step>
+<Step title="در خروجی JavaScript همه پاک می‌شود">
+`function first(arr) { return arr[0]; }`. هیچ اثری از T در زمان اجرا نیست.
+</Step>
+</Steps>
+
+<Callout type="note">
+چون T در زمان اجرا وجود ندارد، داخل تابع نمی‌توانید بنویسید `typeof T` یا `new T()` یا `if (x instanceof T)`. Generic فقط یک ابزار زمان کامپایل است.
+</Callout>
+
+## چند پارامتر نوع و قراردادهای نام‌گذاری
+
+یک تابع می‌تواند هر تعداد پارامتر نوع داشته باشد، با کاما جدا:
+
+```ts
+function pair<A, B>(a: A, b: B): [A, B] {
+  return [a, b];
+}
+
+const p = pair("age", 30); // p: [string, number]
+
+function mapArray<T, U>(arr: T[], fn: (item: T) => U): U[] {
+  const out: U[] = [];
+  for (const item of arr) out.push(fn(item));
+  return out;
+}
+
+const lengths = mapArray(["a", "bcd"], (s) => s.length); // T = string، U = number → number[]
+```
+
+در `mapArray` دقت کنید: TypeScript از آرگومان اول `T = string` را فهمید، پس نوع `s` در Callback را **خودش** می‌داند (`string`)، و از خروجی Callback `U = number` را پیدا کرد.
+
+قراردادهای رایج نام‌گذاری:
+
+| نام | معنی رایج |
+| --- | --- |
+| `T` | Type؛ اولین (یا تنها) پارامتر نوع |
+| `U`، `V` | پارامترهای دوم و سوم |
+| `K` | Key (کلید یک Object) |
+| `V` | Value (مقدار متناظر با یک کلید) |
+| `E` | Element یا Error |
+| `TItem`، `TData`، `TProps` | نام‌های توصیفی برای وقتی که چند پارامتر دارید و یک حرف گیج‌کننده است |
+
+## Constraint: محدود کردن T با `extends`
+
+داخل یک تابع Generic، TypeScript درباره T **هیچ** چیزی نمی‌داند؛ T می‌تواند هر چیزی باشد، حتی `number` یا `null`. پس اجازه هیچ کاری نمی‌دهد:
+
+```ts
+function getLength<T>(value: T) {
+  return value.length;
+  // ❌ Property 'length' does not exist on type 'T'.
+}
+```
+
+اگر تابع شما فقط با نوع‌هایی کار می‌کند که `length` دارند، این را با **Constraint** (قید) اعلام کنید: `T extends Something` یعنی «T هر نوعی می‌تواند باشد، **به شرطی** که حداقل شکل Something را داشته باشد».
+
+```ts
+function getLength<T extends { length: number }>(value: T) {
+  return value.length;  // ✓ حالا TypeScript می‌داند T حتماً length دارد
+}
+
+getLength("hello");     // ✓ رشته length دارد
+getLength([1, 2, 3]);   // ✓ آرایه length دارد
+getLength({ length: 5, name: "x" }); // ✓ هر Objectی با length
+getLength(42);
+// ❌ Argument of type 'number' is not assignable to parameter of type '{ length: number; }'.
+```
+
+`extends` اینجا به معنای «ارث‌بری کلاس» نیست؛ یعنی «قابل انتساب به» یا «زیرمجموعه‌ای از». هر چه قید دقیق‌تر باشد، داخل تابع کار بیشتری می‌توانید بکنید، ولی صدازننده‌ها محدودتر می‌شوند.
+
+### چرا به‌جای Constraint مستقیم `{ length: number }` ننویسیم؟
+
+سوال خوبی است. این تابع بدون Generic هم کار می‌کند:
+
+```ts
+function getLength2(value: { length: number }) {
+  return value.length;
+}
+```
+
+تفاوت فقط وقتی پیدا می‌شود که بخواهید **همان نوع** را برگردانید:
+
+```ts
+function longest<T extends { length: number }>(a: T, b: T): T {
+  return a.length >= b.length ? a : b;
+}
+
+const arr = longest([1, 2], [3]);  // arr: number[] ← نوع دقیق حفظ شد
+const str = longest("ab", "c");    // یک رشته
+longest([1], "ab");                // ❌ T نمی‌تواند هم‌زمان number[] و string باشد
+```
+
+اگر پارامترها `{ length: number }` بودند، خروجی هم فقط `{ length: number }` بود و `arr.map` خطا می‌داد. **قاعده:** Generic وقتی لازم است که یک نوع را به دو جا **وصل** کند (ورودی به خروجی، یا دو پارامتر به هم). اگر T فقط یک بار استفاده شده، احتمالاً Generic لازم نیست.
+
+## `keyof` و Indexed Access: Genericهایی که با کلید Object کار می‌کنند
+
+یکی از پرکاربردترین الگوها: تابعی که یک Object و اسم یک کلید می‌گیرد و مقدار آن کلید را **با نوع درست** برمی‌گرداند. دو ابزار لازم داریم:
+
+- **`keyof T`**: Union همه کلیدهای T. برای `{ name: string; age: number }` می‌شود `"name" | "age"`.
+- **`T[K]`** (Indexed Access Type): نوع مقدار کلید K در T. `User["age"]` می‌شود `number`.
+
+```ts
+function getProp<T, K extends keyof T>(obj: T, key: K): T[K] {
+  return obj[key];
+}
+
+const user = { name: "Sara", age: 30 };
+
+const n = getProp(user, "name");  // K = "name" → خروجی: string
+const a = getProp(user, "age");   // K = "age"  → خروجی: number
+getProp(user, "email");
+// ❌ Argument of type '"email"' is not assignable to parameter of type '"age" | "name"'.
+```
+
+بیایید این امضا را تکه‌تکه بخوانیم:
+
+```text
+function getProp<T, K extends keyof T>(obj: T, key: K): T[K]
+                 ①  ②                  ③       ④        ⑤
+```
+
+- ① `T`: نوع Object
+- ② `K extends keyof T`: K فقط می‌تواند یکی از کلیدهای T باشد
+- ③ `obj: T`: آرگومان Object
+- ④ `key: K`: آرگومان کلید
+- ⑤ `T[K]`: نوع خروجی؛ نوع مقدار همان کلید
+
+همین الگو در `_.get` در Lodash، `pick`، `sortBy(items, "price")` و فرم‌ها (`register("email")` در React Hook Form) استفاده می‌شود. ویرایشگر شما هم کلیدهای مجاز را پیشنهاد می‌دهد.
+
+## Interface و Type Alias جنریک
+
+پارامتر نوع فقط مال توابع نیست. یک `type` یا `interface` هم می‌تواند پارامتر بگیرد، مثل یک «قالب نوع»:
+
+```ts
+interface Box<T> {
+  value: T;
+}
+
+const b1: Box<string> = { value: "hello" };
+const b2: Box<number> = { value: 42 };
+const b3: Box = { value: 1 };
+// ❌ Generic type 'Box<T>' requires 1 type argument(s).
+```
+
+یک مثال واقعی: شکل پاسخ‌های یک API که همه یک قالب دارند ولی `data` هر کدام فرق می‌کند:
+
+```ts
+type ApiResponse<T> = {
+  data: T;
+  status: number;
+  error?: string;
+};
+
+type User = { id: number; name: string };
+
+async function getUsers(): Promise<ApiResponse<User[]>> {
+  const res = await fetch("/api/users");
+  return res.json();
+}
+
+const r = await getUsers();
+r.data[0].name; // ✓ TypeScript می‌داند data آرایه‌ای از User است
+```
+
+### مقدار پیش‌فرض برای پارامتر نوع
+
+مثل پارامترهای تابع، پارامتر نوع هم می‌تواند **پیش‌فرض** داشته باشد. اگر کسی نوع را ننویسد، پیش‌فرض استفاده می‌شود:
+
+```ts
+type ApiResponse<T = unknown> = { data: T; status: number };
+
+const r1: ApiResponse<string> = { data: "ok", status: 200 }; // T = string
+const r2: ApiResponse = { data: 1, status: 200 };            // T = unknown
+r2.data.toFixed();
+// ❌ 'r2.data' is of type 'unknown'.
+```
+
+قواعد: پارامترهای دارای پیش‌فرض باید **بعد از** پارامترهای بدون پیش‌فرض بیایند، و پیش‌فرض باید با Constraint جور باشد: `<T extends object = {}>`.
+
+## Generic در نوع‌هایی که هر روز استفاده می‌کنید
+
+احتمالاً بدون اینکه بدانید از Generic استفاده کرده‌اید. خیلی از نوع‌های داخلی Generic هستند:
+
+| نوع | معنی |
+| --- | --- |
+| `Array<T>` (همان `T[]`) | آرایه‌ای از T |
+| `Promise<T>` | Promiseی که با یک T Resolve می‌شود؛ `await` آن یک T می‌دهد |
+| `Map<K, V>` | Map با کلیدهای K و مقدارهای V |
+| `Set<T>` | مجموعه‌ای از T |
+| `Record<K, V>` | Objectی با کلیدهای K و مقدارهای V |
+| `ReadonlyArray<T>` | آرایه‌ای که نمی‌شود تغییرش داد |
+| `Partial<T>`، `Pick<T, K>`، ... | Utility Typeها؛ در [فصل بعد](/typescript/advanced-types) |
+
+```ts
+const cache = new Map<string, User>();      // صریح، چون Map خالی چیزی برای استنتاج ندارد
+cache.set("u1", { id: 1, name: "Ali" });
+const found = cache.get("u1");              // found: User | undefined
+
+const ids = new Set<number>();
+ids.add("x");                               // ❌ رشته در Set<number>
+
+async function load(): Promise<number> { return 42; }
+```
+
+## کلاس‌های جنریک
+
+کلاس هم می‌تواند پارامتر نوع بگیرد و همه متدهایش از آن استفاده کنند:
+
+```ts
+class Stack<T> {
+  private items: T[] = [];
+
+  push(item: T): void {
+    this.items.push(item);
+  }
+
+  pop(): T | undefined {
+    return this.items.pop();
+  }
+
+  peek(): T | undefined {
+    return this.items[this.items.length - 1];
+  }
+}
+
+const numbers = new Stack<number>();
+numbers.push(1);
+numbers.push("a");
+// ❌ Argument of type 'string' is not assignable to parameter of type 'number'.
+const top = numbers.pop(); // top: number | undefined
+```
+
+یک محدودیت: اعضای `static` کلاس نمی‌توانند از T استفاده کنند، چون `static` مال خود کلاس است و نه یک Instance، و هر Instance ممکن است T متفاوتی داشته باشد.
+
+## Arrow Function جنریک و دام فایل‌های `.tsx`
+
+```ts
+const identity = <T>(value: T): T => value;
+```
+
+در فایل `.tsx` (React)، `<T>` با یک تگ JSX اشتباه گرفته می‌شود. دو راه حل رایج:
+
+```tsx
+const identity = <T,>(value: T): T => value;               // یک کامای اضافه
+const identity2 = <T extends unknown>(value: T): T => value; // یا یک Constraint
+```
+
+## `const` Type Parameter
+
+از TypeScript 5.0، اگر جلوی پارامتر نوع `const` بنویسید، TypeScript آرگومان را با دقیق‌ترین نوع ممکن استنتاج می‌کند، انگار صدازننده `as const` نوشته باشد:
+
+```ts
+function routes<T>(paths: T) { return paths; }
+const r1 = routes(["home", "about"]);       // string[]
+
+function routes2<const T>(paths: T) { return paths; }
+const r2 = routes2(["home", "about"]);      // readonly ["home", "about"]
+```
+
+این برای کتابخانه‌هایی مفید است که از مقدارهای Literal نوع می‌سازند (Routerها، تعریف Eventها، Schemaها).
+
+## اشتباهات و دام‌ها
+
+<Callout type="mistake" title="برگرداندن یک مقدار مشخص به‌جای T">
+```ts
+function make<T>(value: T): T {
+  return "hello";
+  // ❌ Type 'string' is not assignable to type 'T'.
+  //    'T' could be instantiated with an arbitrary type which could be unrelated to 'string'.
+}
+```
+
+T را **صدازننده** انتخاب می‌کند، نه شما. اگر کسی `make<number>(1)` صدا بزند، شما قول داده‌اید `number` برگردانید. داخل تابع فقط مقدارهایی را می‌توانید به‌عنوان T برگردانید که از ورودی‌های T آمده‌اند.
+</Callout>
+
+<Callout type="mistake" title="اشتباه گرفتن Constraint با خود نوع">
+```ts
+function minLength<T extends { length: number }>(obj: T, min: number): T {
+  if (obj.length >= min) return obj;
+  return { length: min };
+  // ❌ '{ length: number; }' is assignable to the constraint of type 'T',
+  //    but 'T' could be instantiated with a different subtype of constraint '{ length: number; }'.
+}
+```
+
+`T extends { length: number }` یعنی T **حداقل** `length` دارد، نه اینکه T **همان** `{ length: number }` است. اگر T برابر `string[]` باشد، `{ length: min }` یک آرایه نیست و صدازننده‌ای که می‌خواهد `.map` بزند کرش می‌کند.
+</Callout>
+
+<Callout type="mistake" title="Generic بی‌فایده">
+```ts
+function log<T>(value: T): void { console.log(value); } // T فقط یک بار استفاده شده
+function log2(value: unknown): void { console.log(value); } // ✓ ساده‌تر و همان‌قدر امن
+```
+
+اگر پارامتر نوع فقط **یک بار** در امضا آمده باشد، هیچ رابطه‌ای را وصل نمی‌کند و فقط خواندن کد را سخت‌تر کرده است. به این «قانون دو بار» می‌گویند: هر پارامتر نوع باید حداقل دو بار ظاهر شود (مثلاً یک بار در ورودی و یک بار در خروجی).
+</Callout>
+
+## Generic در برابر جایگزین‌ها
+
+| ابزار | کی؟ | ضعف |
+| --- | --- | --- |
+| نوع مشخص (`number`) | فقط یک نوع منطقی است | قابل استفاده دوباره نیست |
+| Union (`string \| number`) | تعداد محدود و معلومی نوع، و خروجی به ورودی وابسته نیست | رابطه ورودی و خروجی را نگه نمی‌دارد |
+| Overload | چند امضای کاملاً متفاوت (`(x: string) => string` و `(x: number) => number`) | تکراری؛ برای حالت‌های نامحدود مناسب نیست |
+| `unknown` | هر چیزی را می‌پذیرد و مهم نیست چه چیزی برمی‌گردد | باید Narrow کنید؛ نوع را حفظ نمی‌کند |
+| `any` | (تقریباً) هیچ‌وقت | بررسی Type را خاموش می‌کند |
+| Generic | منطق یکسان برای هر نوع **و** حفظ رابطه بین نوع‌ها | امضاهای پیچیده می‌توانند ناخوانا شوند |
+
+## سوالات مصاحبه
+
+<QA q="Generic در TypeScript چیست و چه مشکلی را حل می‌کند؟" level="junior" n={1}>
+<Answer>
+
+Generic یعنی یک تابع، کلاس، `interface` یا `type` پارامتر **نوع** بگیرد (مثل `<T>`) که موقع استفاده پر می‌شود، معمولاً با استنتاج از آرگومان‌ها. مشکلی که حل می‌کند: نوشتن کد قابل استفاده دوباره که با هر نوعی کار کند **بدون** از دست دادن اطلاعات نوع. با `any` کد قابل استفاده دوباره می‌شود ولی نوع گم می‌شود؛ با Generic رابطه بین ورودی و خروجی حفظ می‌شود (`first<T>(arr: T[]): T`).
+
+</Answer>
+<Deep>
+
+Genericها در زمان کامپایل حل می‌شوند و در خروجی JavaScript کاملاً پاک می‌شوند. بر خلاف Genericهای Java یا C#، هیچ اطلاعات زمان اجرایی از T وجود ندارد؛ پس `new T()` یا `instanceof T` ممکن نیست.
+
+</Deep>
+</QA>
+
+<QA q="`T extends X` در یک Generic یعنی چه؟" level="mid" n={2}>
+<Answer>
+
+یک Constraint است: T می‌تواند هر نوعی باشد، به شرطی که قابل انتساب به X باشد (حداقل شکل X را داشته باشد). این دو کار می‌کند: داخل تابع اجازه می‌دهد از اعضای X استفاده کنید (مثلاً `.length`)، و صدازننده‌ها را از دادن نوع نامعتبر منع می‌کند.
+
+</Answer>
+<Deep>
+
+T همچنان می‌تواند یک **زیرنوع** دقیق‌تر از X باشد. برای همین نمی‌توانید یک مقدار از نوع X را به‌عنوان T برگردانید؛ خطای «T could be instantiated with a different subtype of constraint» دقیقاً همین را می‌گوید.
+
+</Deep>
+<Mistake>
+
+فکر کردن به اینکه `extends` اینجا به معنای ارث‌بری کلاس است.
+
+</Mistake>
+</QA>
+
+<QA q="یک تابع `getProp(obj, key)` بنویسید که نوع خروجی‌اش دقیق باشد." level="mid" n={3}>
+<Answer>
+
+```ts
+function getProp<T, K extends keyof T>(obj: T, key: K): T[K] {
+  return obj[key];
+}
+```
+
+`keyof T` Union کلیدهای T است، پس K فقط یکی از کلیدهای واقعی می‌تواند باشد (کلید اشتباه خطای کامپایل می‌دهد). `T[K]` نوع مقدار همان کلید است، پس `getProp(user, "age")` یک `number` برمی‌گرداند و نه یک Union از همه مقدارها.
+
+</Answer>
+</QA>
+
+<QA q="چه زمانی نباید از Generic استفاده کرد؟" level="senior" n={4}>
+<Answer>
+
+وقتی پارامتر نوع فقط یک بار در امضا ظاهر شده و هیچ دو چیزی را به هم وصل نمی‌کند؛ در این صورت `unknown` یا خود Constraint ساده‌تر و خواناتر است. همچنین وقتی فقط چند نوع محدود و معلوم داریم که Union یا Overload آن‌ها را بهتر توصیف می‌کند، و وقتی امضا آن‌قدر پیچیده شده که پیام‌های خطا برای مصرف‌کننده نامفهوم‌اند.
+
+</Answer>
+<Deep>
+
+یک نشانه دیگر: اگر داخل تابع مجبورید `as T` بنویسید، احتمالاً قولی می‌دهید که نمی‌توانید نگه دارید. API عمومی یک کتابخانه را با Generic غنی کنید ولی پیام‌های خطا را هم تست کنید؛ کد اپلیکیشن معمولاً به Genericهای ساده نیاز دارد.
+
+</Deep>
+</QA>
+
+<QA q="چرا در `useState(null)` باید نوع را صریح نوشت؟" level="junior" n={5}>
+<Answer>
+
+چون T از مقدار اولیه استنتاج می‌شود. `useState(null)` نوع State را `null` می‌کند و بعداً `setUser(someUser)` خطا می‌دهد. با `useState<User | null>(null)` نوع درست را صریح اعلام می‌کنیم. اگر مقدار اولیه نماینده کامل نوع باشد (`useState(0)` یا `useState("")`) نوشتن نوع لازم نیست.
+
+</Answer>
+</QA>
+
+## جمع‌بندی
+
+<Recap>
+
+- Generic یعنی پارامتر **نوع** (`<T>`)؛ جای خالی‌ای برای یک نوع که موقع استفاده پر می‌شود.
+- برتری‌اش بر `any` این است که رابطه بین نوع ورودی و خروجی حفظ می‌شود.
+- T معمولاً از آرگومان‌ها استنتاج می‌شود؛ وقتی آرگومان کافی نیست (مثل `useState(null)` یا `new Map()`) آن را صریح بنویسید.
+- `T extends X` یک Constraint است: T حداقل شکل X را دارد، پس داخل تابع می‌توانید از اعضای X استفاده کنید.
+- `K extends keyof T` و `T[K]` توابعی می‌سازند که با کلیدهای Object و نوع دقیق مقدارشان کار می‌کنند.
+- `interface`، `type` و `class` هم می‌توانند Generic باشند و پارامتر نوع می‌تواند پیش‌فرض داشته باشد (`<T = unknown>`).
+- `Array<T>`، `Promise<T>`، `Map<K, V>` و `Record<K, V>` همه Generic هستند.
+- T را صدازننده انتخاب می‌کند؛ نمی‌توانید یک مقدار مشخص را به‌عنوان T برگردانید.
+- هر پارامتر نوع باید حداقل دو بار در امضا بیاید؛ وگرنه `unknown` یا نوع ساده کافی است.
+- Genericها در زمان اجرا وجود ندارند: `new T()` و `instanceof T` ممکن نیست.
+
+</Recap>

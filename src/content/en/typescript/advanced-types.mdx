@@ -1,0 +1,531 @@
+## Why advanced types? One source of truth
+
+Say you've defined a user type:
+
+```ts
+type User = {
+  id: number;
+  name: string;
+  email: string;
+  role: "admin" | "editor" | "viewer";
+};
+```
+
+Now you build the edit-user form, where every field is **optional** (the client only sends what changed). The create-user form has no `id` (the server generates it). The users table only shows `name` and `email`. What happens if you hand-write a new type for each one?
+
+```ts
+// ❌ hand-written copies: a month later someone adds phone to User and forgets these
+type UserUpdate = { id?: number; name?: string; email?: string; role?: "admin" | "editor" | "viewer" };
+type NewUser    = { name: string; email: string; role: "admin" | "editor" | "viewer" };
+type UserRow    = { name: string; email: string };
+```
+
+These are **copies**, and they don't stay in sync when `User` changes. The idea of this chapter: **build** new types **from** existing ones, just as ordinary code builds new data from existing data.
+
+```ts
+// ✓ derived: if User changes, all of these update automatically
+type UserUpdate = Partial<User>;
+type NewUser    = Omit<User, "id">;
+type UserRow    = Pick<User, "name" | "email">;
+```
+
+To understand how `Partial` and `Omit` work, we'll first learn the basic tools: type operators, then mapped types, then conditional types. By the end you'll see that every utility type is built from these few tools in a line or two.
+
+## Basic type operators
+
+### `keyof`: the keys of a type
+
+`keyof T` builds a union of all of T's key names:
+
+```ts
+type UserKey = keyof User; // "id" | "name" | "email" | "role"
+
+const k: UserKey = "email"; // ✓
+const bad: UserKey = "age"; // ❌ "age" isn't a key of User
+```
+
+### `typeof` in type position: getting a type from a value
+
+You know `typeof` from JavaScript (it returns a string). But written in **type position** (after `:` or in `type X =`), it does something completely different: it returns the type of a **variable**.
+
+```ts
+const config = { port: 3000, host: "localhost", debug: false };
+
+type Config = typeof config;
+// { port: number; host: string; debug: boolean }
+```
+
+This is useful when **the data came first** and you don't want to write its type twice. For example, a settings object or a function's output.
+
+### Indexed access: `T[K]`
+
+With the same syntax as property access, you can read the type of a property:
+
+```ts
+type Role = User["role"];               // "admin" | "editor" | "viewer"
+type IdOrName = User["id" | "name"];    // number | string
+type ValueOf<T> = T[keyof T];           // the union of every value type
+type UserValue = ValueOf<User>;         // number | string | "admin" | ...
+```
+
+A very common trick: `T[number]` on an array or tuple gives the type of its elements. Combined with `as const`, you can build a union from a real array and keep both in sync:
+
+```ts
+const ROLES = ["admin", "editor", "viewer"] as const; // readonly ["admin", "editor", "viewer"]
+type Role2 = (typeof ROLES)[number];                  // "admin" | "editor" | "viewer"
+
+const r: Role2 = "viewer"; // ✓
+// and ROLES is still available at runtime (say, to build a <select>)
+```
+
+<Steps>
+<Step title="as const">
+Makes the array `readonly` and its elements literals. Without it, the array's type would be just `string[]` and the role names would be lost.
+</Step>
+<Step title="typeof ROLES">
+Goes from value to type: `readonly ["admin", "editor", "viewer"]`.
+</Step>
+<Step title="[number]">
+"The element type at any numeric index", i.e. the union of all elements: `"admin" | "editor" | "viewer"`.
+</Step>
+</Steps>
+
+## Built-in utility types
+
+TypeScript ships a set of ready-made types, all of them generic (see [the generics chapter](/typescript/generics)). These are the most used. For each: what it does, an example, and where it helps.
+
+<Api name="Partial<T>" sig="Partial<T>" returns="The same T with **every** property made optional (`?`)." mutates="no">
+
+- `T`: an object type. Only the top level becomes optional; nested objects are untouched.
+
+</Api>
+
+```ts
+type UserUpdate = Partial<User>;
+// { id?: number; name?: string; email?: string; role?: ... }
+
+function updateUser(id: number, changes: Partial<User>) { /* ... */ }
+updateUser(1, { name: "Sara" }); // ✓ only what changed
+```
+
+<Api name="Required<T>" sig="Required<T>" returns="The opposite of `Partial`: every optional property becomes **required**." mutates="no">
+
+- `T`: an object type. `?` is removed from every property (along with the `undefined` that `?` added).
+
+</Api>
+
+```ts
+type Settings = { theme?: "light" | "dark"; lang?: string };
+const defaults: Required<Settings> = { theme: "light", lang: "fa" }; // both are required
+```
+
+<Api name="Readonly<T>" sig="Readonly<T>" returns="The same T with every property `readonly`; writing to them is a compile error." mutates="no">
+
+- `T`: an object type. It's **shallow**: nested objects can still be changed.
+- Compile time only; use `Object.freeze` to really prevent changes at runtime.
+
+</Api>
+
+```ts
+const state: Readonly<User> = { id: 1, name: "Ali", email: "a@b.c", role: "admin" };
+state.name = "Reza";
+// ❌ Cannot assign to 'name' because it is a read-only property.
+```
+
+<Api name="Pick<T, K>" sig="Pick<T, K extends keyof T>" returns="A new type with **only** the keys K from T." mutates="no">
+
+- `T`: the source type.
+- `K`: one key or a union of keys. It must be a real key of T; otherwise: “Type '"nope"' does not satisfy the constraint 'keyof User'”.
+
+</Api>
+
+<Api name="Omit<T, K>" sig="Omit<T, K extends keyof any>" returns="A new type with **all** of T's keys **except** K." mutates="no">
+
+- `T`: the source type.
+- `K`: the key(s) to remove. Note: its constraint is `keyof any`, not `keyof T`, so if you misspell a key you get **no error** and nothing is removed.
+
+</Api>
+
+```ts
+type UserRow = Pick<User, "name" | "email">; // { name: string; email: string }
+type NewUser = Omit<User, "id">;             // { name; email; role }
+
+type Oops = Omit<User, "idd">;               // no error! nothing was removed
+```
+
+| | `Pick` | `Omit` |
+| --- | --- | --- |
+| What remains | only the listed keys | everything except the listed keys |
+| Misspelled key | compile error | no error (trap!) |
+| When? | you need a few keys from a big type | you need almost everything except one or two |
+
+<Api name="Record<K, V>" sig="Record<K extends keyof any, V>" returns="An object type whose keys are K and whose value for each key is V." mutates="no">
+
+- `K`: the key type: `string`, `number`, `symbol`, or a union of literals. With a literal union, **every** key is required.
+- `V`: the type of each value.
+
+</Api>
+
+```ts
+type Role = User["role"];
+const labels: Record<Role, string> = {
+  admin: "Administrator",
+  editor: "Editor",
+  viewer: "Viewer",   // leave one out and you get a compile error
+};
+
+const cache: Record<string, User> = {}; // any string key
+```
+
+### Utility types that work on unions
+
+<Api name="Exclude<T, U> · Extract<T, U> · NonNullable<T>" sig="Exclude<T, U> · Extract<T, U> · NonNullable<T>" returns="`Exclude`: the members of union T that are **not** assignable to U. `Extract`: the ones that **are**. `NonNullable`: T without `null` and `undefined`." mutates="no">
+
+- `T`: a union (or any type).
+- `U`: the type T's members are compared against.
+
+</Api>
+
+```ts
+type Status = "idle" | "loading" | "success" | "error";
+
+type Done = Exclude<Status, "idle" | "loading">;   // "success" | "error"
+type Busy = Extract<Status, "loading" | "pending">; // "loading" ("pending" wasn't in Status)
+type Fn   = Extract<string | number | (() => void), Function>; // () => void
+type Name = NonNullable<string | null | undefined>; // string
+```
+
+`Omit` works on an object's keys and `Exclude` on a union's members. Mixing them up is common.
+
+### Utility types that work on functions and promises
+
+<Api name="ReturnType<F> · Parameters<F> · Awaited<T> · InstanceType<C>" sig="ReturnType<typeof fn> · Parameters<typeof fn> · Awaited<T> · InstanceType<typeof Cls>" returns="`ReturnType`: a function's return type. `Parameters`: a tuple of its parameter types. `Awaited`: the type `await` produces (even for nested promises). `InstanceType`: the type of the object `new` creates." mutates="no">
+
+- `F`: a **function type**; so for a real function you must write `typeof fn`, not `fn`.
+- `C`: a class (constructor) type: `typeof MyClass`.
+
+</Api>
+
+```ts
+function createUser(name: string, age: number) {
+  return { id: Date.now(), name, age };
+}
+
+type CreatedUser = ReturnType<typeof createUser>; // { id: number; name: string; age: number }
+type CreateArgs  = Parameters<typeof createUser>; // [name: string, age: number]
+type FirstArg    = CreateArgs[0];                 // string
+
+async function fetchCount() { return 42; }
+type Count = Awaited<ReturnType<typeof fetchCount>>; // number (not Promise<number>)
+
+type N = Awaited<Promise<Promise<number>>>;          // number; every layer is unwrapped
+```
+
+These shine when you consume another library's code that doesn't export its types: you pull them out of the function itself.
+
+## Mapped types: a for loop over keys
+
+Now let's see how `Partial` is built. A **mapped type** creates a new type like this: "for each key in a set of keys, create a property." Its syntax looks like a `for...in` loop:
+
+```ts
+type MyPartial<T> = {
+  [K in keyof T]?: T[K];
+};
+```
+
+Let's read it piece by piece:
+
+- `keyof T`: the set of keys, e.g. `"id" | "name"`.
+- `K in ...`: "K becomes each of these keys in turn" (like a loop variable).
+- `?`: make the created property optional.
+- `T[K]`: keep the type of that key's value in T.
+
+```text
+ T = { id: number; name: string }
+
+ K = "id"    →  id?:   T["id"]    →  id?:   number
+ K = "name"  →  name?: T["name"]  →  name?: string
+
+ result:  { id?: number; name?: string }
+```
+
+### Modifiers: adding and removing `readonly` and `?`
+
+In a mapped type you can **add** (`+`, the default, usually not written) or **remove** (`-`) `readonly` and `?`:
+
+```ts
+type MyReadonly<T> = { readonly [K in keyof T]: T[K] };   // add readonly
+type MyRequired<T> = { [K in keyof T]-?: T[K] };          // remove ?
+type Mutable<T>    = { -readonly [K in keyof T]: T[K] };  // remove readonly (no built-in for this)
+```
+
+Now you can see that `Partial`, `Required` and `Readonly` are one line each.
+
+### Renaming keys with `as`
+
+Since TypeScript 4.1 you can also rename keys with `as`. For example, generating a getter for every property:
+
+```ts
+type Getters<T> = {
+  [K in keyof T as `get${Capitalize<string & K>}`]: () => T[K];
+};
+
+type PersonGetters = Getters<{ name: string; age: number }>;
+// { getName: () => string; getAge: () => number }
+```
+
+(`string & K` is needed because keys can also be `number` or `symbol`, and `Capitalize` only accepts strings. We'll cover `Capitalize` and template literals below.)
+
+If the `as` clause produces `never`, that key is **removed**. That's a way to filter keys by their value type:
+
+```ts
+type OnlyStrings<T> = {
+  [K in keyof T as T[K] extends string ? K : never]: T[K];
+};
+
+type Product = { id: number; title: string; slug: string; price: number };
+type ProductText = OnlyStrings<Product>; // { title: string; slug: string }
+```
+
+<Callout type="mistake" title="Optional properties in a filter">
+If Product had a `note?: string`, it would **not** appear in `ProductText`. An optional property's value type is `string | undefined`, and `string | undefined extends string` is false. If you want to keep them, write the condition as `NonNullable<T[K]> extends string`.
+</Callout>
+
+## Conditional types: `if` in the world of types
+
+A **conditional type** picks a type based on a condition. Its syntax looks like JavaScript's ternary operator:
+
+```ts
+T extends U ? X : Y
+// "if T is assignable to U, then X; otherwise Y"
+```
+
+```ts
+type IsString<T> = T extends string ? "yes" : "no";
+
+type A = IsString<"hello">; // "yes"
+type B = IsString<42>;      // "no"
+```
+
+`extends` here also means "assignable to", as in constraints. On its own this isn't exciting; the real power comes from combining it with generics and unions.
+
+### Distributive behavior over unions
+
+When T is a **naked type parameter** (not wrapped in a tuple or object) and you pass it a union, the conditional type runs on **each member separately**, and the results are unioned again:
+
+```ts
+type Dist = IsString<string | number>;
+// = IsString<string> | IsString<number>
+// = "yes" | "no"
+```
+
+That's exactly what makes `Exclude` possible:
+
+```ts
+type MyExclude<T, U> = T extends U ? never : T;
+
+type R = MyExclude<"a" | "b" | "c", "a">;
+// "a" extends "a" ? never : "a"  →  never
+// "b" extends "a" ? never : "b"  →  "b"
+// "c" extends "a" ? never : "c"  →  "c"
+// never | "b" | "c"  =  "b" | "c"   (never disappears in a union)
+```
+
+If you **don't** want distribution, wrap T in a tuple so it's no longer "naked":
+
+```ts
+type ToArray<T> = T extends unknown ? T[] : never;
+type X = ToArray<string | number>;   // string[] | number[]  (distributed)
+
+type ToArrayNoDist<T> = [T] extends [unknown] ? T[] : never;
+type Y = ToArrayNoDist<string | number>; // (string | number)[]  (as a whole)
+```
+
+<Callout type="note">
+A strange but logical consequence: `IsString<never>` is `never`, not `"no"`. `never` is an **empty** union, and distributing over zero members gives zero results. If you need to detect `never`, write `[T] extends [never] ? ... : ...`.
+</Callout>
+
+### `infer`: pulling a type out of another type
+
+Inside the `extends` clause you can write `infer X` to say: "I don't know this part; whatever it is, call it X." It's pattern matching on types:
+
+```ts
+type ElementType<T> = T extends (infer U)[] ? U : T;
+type E1 = ElementType<string[]>; // string  (pattern matched, U = string)
+type E2 = ElementType<number>;   // number  (no match, T itself)
+
+type MyReturnType<T> = T extends (...args: any[]) => infer R ? R : never;
+type R1 = MyReturnType<() => boolean>; // boolean
+
+type UnwrapPromise<T> = T extends Promise<infer V> ? V : T;
+type P1 = UnwrapPromise<Promise<string>>; // string
+```
+
+The built-in `ReturnType`, `Parameters` and `Awaited` are built exactly this way. `infer` is only allowed inside the `extends` clause of a conditional type.
+
+## Template literal types: building strings at the type level
+
+JavaScript's familiar template literal (`` `Hello ${name}` ``) exists in the type world too, but it builds strings from types instead of values:
+
+```ts
+type Size = "sm" | "lg";
+type Color = "red" | "blue";
+
+type ButtonClass = `${Size}-${Color}`;
+// "sm-red" | "sm-blue" | "lg-red" | "lg-blue"  (every combination)
+
+const c: ButtonClass = "md-red";
+// ❌ Type '"md-red"' is not assignable to type '"lg-blue" | "lg-red" | "sm-blue" | "sm-red"'. Did you mean '"sm-red"'?
+```
+
+There are also four built-in types for changing case: `Uppercase<S>`, `Lowercase<S>`, `Capitalize<S>` (first letter upper case) and `Uncapitalize<S>` (first letter lower case).
+
+```ts
+type EventName = `on${Capitalize<"click" | "focus">}`; // "onClick" | "onFocus"
+
+type Px = `${number}px`;
+const w1: Px = "10px"; // ✓
+const w2: Px = "abc";  // ❌ Type '"abc"' is not assignable to type '`${number}px`'.
+```
+
+## Recursive types
+
+A type can refer to itself. You need this for tree-like and nested structures:
+
+```ts
+type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | Json[]
+  | { [key: string]: Json };
+
+const data: Json = { users: [{ name: "Ali", tags: ["a"] }] }; // ✓
+
+// deep Partial: the normal Partial only makes the top level optional
+type DeepPartial<T> = {
+  [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K];
+};
+```
+
+## Branded types: two `number`s that must not mix
+
+TypeScript is **structural**: two `number`s are the same to it. So this bug goes unnoticed:
+
+```ts
+function getOrder(orderId: number) { /* ... */ }
+const userId = 5;
+getOrder(userId); // 🐞 a user ID instead of an order ID; no error
+```
+
+A **branded type** adds a fake "label" to a type that exists only at compile time:
+
+```ts
+type UserId  = number & { readonly __brand: "UserId" };
+type OrderId = number & { readonly __brand: "OrderId" };
+
+function getOrder2(id: OrderId) { /* ... */ }
+
+const uid = 5 as UserId;    // the one place you need as: at creation
+getOrder2(uid);             // ❌ Argument of type 'UserId' is not assignable to parameter of type 'OrderId'.
+getOrder2(5);               // ❌ a plain number isn't accepted either
+```
+
+At runtime, `uid` is just the number `5`. Usually you write a constructor function (`toOrderId(n)`) that validates and is the only place with `as`.
+
+## Common mistakes
+
+- Writing copied types instead of deriving them with `Pick`, `Omit`, `Partial` and `typeof`.
+- Trusting `Omit` to catch a wrong key (it doesn't).
+- Confusing `Omit` (object keys) with `Exclude` (union members).
+- `ReturnType<fn>` instead of `ReturnType<typeof fn>`.
+- Forgetting that `Partial` and `Readonly` are shallow.
+- Being surprised by distributive conditional types over unions and the `never` result.
+- Building types so complex their error messages are unreadable; prefer simple, readable types.
+
+## Interview questions
+
+<QA q="What do `Partial`, `Pick` and `Omit` do? Implement one yourself." level="mid" n={1}>
+<Answer>
+
+`Partial<T>` makes every property optional, `Pick<T, K>` keeps only the keys K, and `Omit<T, K>` keeps everything except K. Implemented with mapped types:
+
+```ts
+type MyPartial<T> = { [K in keyof T]?: T[K] };
+type MyPick<T, K extends keyof T> = { [P in K]: T[P] };
+type MyOmit<T, K extends keyof any> = Pick<T, Exclude<keyof T, K>>;
+```
+
+</Answer>
+<Deep>
+
+`Omit` is built from `Exclude` over `keyof T`, and since K is constrained only to `keyof any`, a wrong key raises no error. Some teams define a `StrictOmit<T, K extends keyof T>`.
+
+</Deep>
+</QA>
+
+<QA q="What does a distributive conditional type mean?" level="senior" n={2}>
+<Answer>
+
+When the checked type in `T extends U ? X : Y` is a naked type parameter that receives a union, the condition runs on each union member separately and the results are unioned. `Exclude<T, U> = T extends U ? never : T` works because of this: members that become `never` drop out of the union.
+
+</Answer>
+<Deep>
+
+To prevent distribution, wrap both sides in a tuple: `[T] extends [U]`. One consequence: with `T = never` (an empty union) the result is `never`, so detecting `never` requires `[T] extends [never]`.
+
+</Deep>
+</QA>
+
+<QA q="What is `infer`? Write `ReturnType` with it." level="senior" n={3}>
+<Answer>
+
+Inside the `extends` clause of a conditional type, `infer` declares a type variable that TypeScript fills in by pattern matching:
+
+```ts
+type MyReturnType<T> = T extends (...args: any[]) => infer R ? R : never;
+```
+
+If T is a function, R becomes its return type; otherwise `never`.
+
+</Answer>
+</QA>
+
+<QA q="How do you build a union of literals from a constant array so both stay in sync?" level="mid" n={4}>
+<Answer>
+
+```ts
+const ROLES = ["admin", "editor", "viewer"] as const;
+type Role = (typeof ROLES)[number];
+```
+
+`as const` makes the array readonly and its elements literals, `typeof` takes the type of the value, and `[number]` gives the union of the elements. Now there's a runtime array (for a `<select>` or validation) and a type, and only one place to edit.
+
+</Answer>
+</QA>
+
+<QA q="What is a branded type and what problem does it solve?" level="senior" n={5}>
+<Answer>
+
+Because the type system is structural, two types with the same shape (say, two `number`s for UserId and OrderId) are interchangeable. A branded type separates them with an intersection carrying a fake property (`number & { __brand: "OrderId" }`), at zero runtime cost. Values are created only through a constructor function (which also validates).
+
+</Answer>
+</QA>
+
+## Recap
+
+<Recap>
+
+- Derive types from existing types so you have one source of truth that stays in sync with changes.
+- `keyof T` is the union of keys, `typeof x` in type position gives a value's type, and `T[K]` gives a property's type.
+- `(typeof ARR)[number]` with `as const` builds a union from a real array.
+- `Partial`, `Required`, `Readonly`, `Pick`, `Omit` and `Record` work on objects; `Exclude`, `Extract` and `NonNullable` on unions.
+- `ReturnType`, `Parameters`, `Awaited` and `InstanceType` pull types out of functions, promises and classes (with `typeof fn`).
+- `Omit` doesn't flag a wrong key, and `Partial` and `Readonly` are shallow.
+- A mapped type (`[K in keyof T]`) is a loop over keys; `-?` and `-readonly` remove modifiers, and `as` renames or filters keys.
+- A conditional type (`T extends U ? X : Y`) distributes over unions; prevent that with `[T]`.
+- `infer` extracts part of a type by pattern matching.
+- Template literal types build strings at the type level, and branded types separate two types with the same shape.
+
+</Recap>

@@ -1,0 +1,486 @@
+## The problem: a function that works with any type without losing the type
+
+Say you want a simple function that returns the first element of an array. Its logic is **exactly the same** for an array of numbers, an array of strings or an array of users. How do we type it?
+
+**Attempt 1: one version per type.** It works, but it's duplicated code, and every new type needs another function:
+
+```ts
+function firstNumber(arr: number[]): number | undefined { return arr[0]; }
+function firstString(arr: string[]): string | undefined { return arr[0]; }
+// firstUser, firstProduct, ... 😩
+```
+
+**Attempt 2: `any`.** One function is enough, but the type information is **lost**:
+
+```ts
+function first(arr: any[]): any {
+  return arr[0];
+}
+
+const n = first([1, 2, 3]); // n: any ← TypeScript no longer knows it's a number
+n.toUpperCase();            // no error, and it crashes at runtime 💥
+```
+
+What we really want is: "the output type is **the same** as the type of the input's elements, whatever that is." That's a **relationship** between input and output, and it's exactly what **generics** (parameterized types) provide.
+
+## What is a generic?
+
+A regular function takes **value parameters**: slots for values that get filled in when it's called. A generic function also takes **type parameters**: slots for **types** that get filled in when it's called.
+
+```ts
+//            ↓ type parameter: "I'll call this type T"
+function first<T>(arr: T[]): T | undefined {
+  //                   ↑ input: an array of T   ↑ output: a T (or undefined)
+  return arr[0];
+}
+
+const n = first([1, 2, 3]);      // T = number  → n: number | undefined
+const s = first(["a", "b"]);     // T = string  → s: string | undefined
+const u = first([{ id: 1 }]);    // T = { id: number }
+```
+
+Read `<T>` as: "this function works with some type called T that I don't know yet; whoever calls me decides." Now TypeScript knows the output has the same type as the input, and `n.toUpperCase()` is a compile error.
+
+| | Value parameter | Type parameter |
+| --- | --- | --- |
+| Written in | `( )` | `< >` |
+| What fills it | a value (`5`, `"hi"`) | a type (`number`, `User`) |
+| When it's filled | at runtime | at compile time |
+| After compilation | stays | **erased completely** |
+
+## Filling in T: inference or explicit
+
+There are two ways to set T.
+
+**1. Inference (usually all you need).** TypeScript works out T from the arguments:
+
+```ts
+function identity<T>(value: T): T {
+  return value;
+}
+
+const a = identity(42);      // T = 42 (a literal type, because the value is constant)
+let text = "hi";
+const b = identity(text);    // T = string (because text is a let and might change)
+```
+
+**2. Explicit.** You write the type inside `< >` at the call:
+
+```ts
+const c = identity<number>(42);   // ✓
+const d = identity<number>("x");  // ❌ Argument of type 'string' is not assignable to parameter of type 'number'.
+```
+
+When should you be explicit? When TypeScript can't guess the right type from the arguments. The classic example is React's `useState`:
+
+```ts
+const [user, setUser] = useState(null);
+// T = null ← later, setUser({ name: "Sara" }) is an error
+
+const [user2, setUser2] = useState<User | null>(null);
+// ✓ T = User | null
+```
+
+### Behind the scenes: how TypeScript finds T
+
+<Steps>
+<Step title="It compares the signature with the arguments">
+For `first([1, 2, 3])`, the signature says the parameter is `T[]` and the argument is `number[]`.
+</Step>
+<Step title="It solves for T">
+`T[]` must match `number[]`, so `T = number`. If T appears in several places, it collects candidates from all of them (for `first([1, "a"])` the result is `string | number`).
+</Step>
+<Step title="It rewrites the whole signature with the new T">
+The signature for this call becomes `(arr: number[]) => number | undefined`. Arguments and the return type are checked against that version.
+</Step>
+<Step title="Everything is erased in the JavaScript output">
+`function first(arr) { return arr[0]; }`. There's no trace of T at runtime.
+</Step>
+</Steps>
+
+<Callout type="note">
+Because T doesn't exist at runtime, inside the function you can't write `typeof T`, `new T()` or `if (x instanceof T)`. Generics are a compile-time tool only.
+</Callout>
+
+## Multiple type parameters and naming conventions
+
+A function can have any number of type parameters, separated by commas:
+
+```ts
+function pair<A, B>(a: A, b: B): [A, B] {
+  return [a, b];
+}
+
+const p = pair("age", 30); // p: [string, number]
+
+function mapArray<T, U>(arr: T[], fn: (item: T) => U): U[] {
+  const out: U[] = [];
+  for (const item of arr) out.push(fn(item));
+  return out;
+}
+
+const lengths = mapArray(["a", "bcd"], (s) => s.length); // T = string, U = number → number[]
+```
+
+Look at `mapArray`: TypeScript worked out `T = string` from the first argument, so it **already knows** the type of `s` in the callback (`string`), and it found `U = number` from the callback's return value.
+
+Common naming conventions:
+
+| Name | Usual meaning |
+| --- | --- |
+| `T` | Type; the first (or only) type parameter |
+| `U`, `V` | the second and third parameters |
+| `K` | Key (an object key) |
+| `V` | Value (the value for a key) |
+| `E` | Element or Error |
+| `TItem`, `TData`, `TProps` | descriptive names for when you have several parameters and a single letter gets confusing |
+
+## Constraints: limiting T with `extends`
+
+Inside a generic function, TypeScript knows **nothing** about T; it could be anything, even `number` or `null`. So it doesn't let you do anything with it:
+
+```ts
+function getLength<T>(value: T) {
+  return value.length;
+  // ❌ Property 'length' does not exist on type 'T'.
+}
+```
+
+If your function only works with types that have `length`, declare that with a **constraint**: `T extends Something` means "T can be any type, **as long as** it has at least the shape of Something."
+
+```ts
+function getLength<T extends { length: number }>(value: T) {
+  return value.length;  // ✓ now TypeScript knows T definitely has length
+}
+
+getLength("hello");     // ✓ strings have length
+getLength([1, 2, 3]);   // ✓ arrays have length
+getLength({ length: 5, name: "x" }); // ✓ any object with length
+getLength(42);
+// ❌ Argument of type 'number' is not assignable to parameter of type '{ length: number; }'.
+```
+
+`extends` here doesn't mean class inheritance; it means "assignable to" or "a subset of". The more precise the constraint, the more you can do inside the function, but the more limited callers are.
+
+### Why not just write `{ length: number }` instead of a constraint?
+
+Good question. This function works without a generic too:
+
+```ts
+function getLength2(value: { length: number }) {
+  return value.length;
+}
+```
+
+The difference only shows up when you want to return **the same type**:
+
+```ts
+function longest<T extends { length: number }>(a: T, b: T): T {
+  return a.length >= b.length ? a : b;
+}
+
+const arr = longest([1, 2], [3]);  // arr: number[] ← exact type preserved
+const str = longest("ab", "c");    // a string
+longest([1], "ab");                // ❌ T can't be number[] and string at once
+```
+
+If the parameters were `{ length: number }`, the output would only be `{ length: number }` too, and `arr.map` would be an error. **Rule:** a generic is needed when it **connects** a type in two places (input to output, or two parameters to each other). If T is used only once, you probably don't need a generic.
+
+## `keyof` and indexed access: generics that work with object keys
+
+One of the most useful patterns: a function that takes an object and a key name and returns that key's value **with the right type**. We need two tools:
+
+- **`keyof T`**: the union of all keys of T. For `{ name: string; age: number }` that's `"name" | "age"`.
+- **`T[K]`** (an indexed access type): the type of key K's value in T. `User["age"]` is `number`.
+
+```ts
+function getProp<T, K extends keyof T>(obj: T, key: K): T[K] {
+  return obj[key];
+}
+
+const user = { name: "Sara", age: 30 };
+
+const n = getProp(user, "name");  // K = "name" → returns string
+const a = getProp(user, "age");   // K = "age"  → returns number
+getProp(user, "email");
+// ❌ Argument of type '"email"' is not assignable to parameter of type '"age" | "name"'.
+```
+
+Let's read that signature piece by piece:
+
+```text
+function getProp<T, K extends keyof T>(obj: T, key: K): T[K]
+                 ①  ②                  ③       ④        ⑤
+```
+
+- ① `T`: the object's type
+- ② `K extends keyof T`: K can only be one of T's keys
+- ③ `obj: T`: the object argument
+- ④ `key: K`: the key argument
+- ⑤ `T[K]`: the return type, the type of that key's value
+
+The same pattern powers Lodash's `_.get`, `pick`, `sortBy(items, "price")` and forms (`register("email")` in React Hook Form). Your editor also autocompletes the valid keys.
+
+## Generic interfaces and type aliases
+
+Type parameters aren't just for functions. A `type` or `interface` can take parameters too, like a "type template":
+
+```ts
+interface Box<T> {
+  value: T;
+}
+
+const b1: Box<string> = { value: "hello" };
+const b2: Box<number> = { value: 42 };
+const b3: Box = { value: 1 };
+// ❌ Generic type 'Box<T>' requires 1 type argument(s).
+```
+
+A real example: API responses that all share one shape, but each has a different `data`:
+
+```ts
+type ApiResponse<T> = {
+  data: T;
+  status: number;
+  error?: string;
+};
+
+type User = { id: number; name: string };
+
+async function getUsers(): Promise<ApiResponse<User[]>> {
+  const res = await fetch("/api/users");
+  return res.json();
+}
+
+const r = await getUsers();
+r.data[0].name; // ✓ TypeScript knows data is an array of User
+```
+
+### Default type parameters
+
+Like function parameters, type parameters can have **defaults**. If nobody provides the type, the default is used:
+
+```ts
+type ApiResponse<T = unknown> = { data: T; status: number };
+
+const r1: ApiResponse<string> = { data: "ok", status: 200 }; // T = string
+const r2: ApiResponse = { data: 1, status: 200 };            // T = unknown
+r2.data.toFixed();
+// ❌ 'r2.data' is of type 'unknown'.
+```
+
+Rules: parameters with defaults must come **after** those without, and the default must satisfy the constraint: `<T extends object = {}>`.
+
+## Generics in types you use every day
+
+You've probably used generics without knowing it. Many built-in types are generic:
+
+| Type | Meaning |
+| --- | --- |
+| `Array<T>` (same as `T[]`) | an array of T |
+| `Promise<T>` | a promise that resolves with a T; `await` gives you a T |
+| `Map<K, V>` | a map with K keys and V values |
+| `Set<T>` | a set of T |
+| `Record<K, V>` | an object with K keys and V values |
+| `ReadonlyArray<T>` | an array you can't modify |
+| `Partial<T>`, `Pick<T, K>`, ... | utility types; covered in [the next chapter](/typescript/advanced-types) |
+
+```ts
+const cache = new Map<string, User>();      // explicit, because an empty Map has nothing to infer from
+cache.set("u1", { id: 1, name: "Ali" });
+const found = cache.get("u1");              // found: User | undefined
+
+const ids = new Set<number>();
+ids.add("x");                               // ❌ a string in a Set<number>
+
+async function load(): Promise<number> { return 42; }
+```
+
+## Generic classes
+
+A class can take a type parameter too, and all its methods can use it:
+
+```ts
+class Stack<T> {
+  private items: T[] = [];
+
+  push(item: T): void {
+    this.items.push(item);
+  }
+
+  pop(): T | undefined {
+    return this.items.pop();
+  }
+
+  peek(): T | undefined {
+    return this.items[this.items.length - 1];
+  }
+}
+
+const numbers = new Stack<number>();
+numbers.push(1);
+numbers.push("a");
+// ❌ Argument of type 'string' is not assignable to parameter of type 'number'.
+const top = numbers.pop(); // top: number | undefined
+```
+
+One limitation: `static` members can't use T, because `static` belongs to the class itself rather than an instance, and each instance may have a different T.
+
+## Generic arrow functions and the `.tsx` trap
+
+```ts
+const identity = <T>(value: T): T => value;
+```
+
+In a `.tsx` (React) file, `<T>` is mistaken for a JSX tag. Two common fixes:
+
+```tsx
+const identity = <T,>(value: T): T => value;               // an extra comma
+const identity2 = <T extends unknown>(value: T): T => value; // or a constraint
+```
+
+## `const` type parameters
+
+Since TypeScript 5.0, writing `const` before a type parameter makes TypeScript infer the argument with the most precise type possible, as if the caller had written `as const`:
+
+```ts
+function routes<T>(paths: T) { return paths; }
+const r1 = routes(["home", "about"]);       // string[]
+
+function routes2<const T>(paths: T) { return paths; }
+const r2 = routes2(["home", "about"]);      // readonly ["home", "about"]
+```
+
+This is useful for libraries that build types from literal values (routers, event definitions, schemas).
+
+## Mistakes and traps
+
+<Callout type="mistake" title="Returning a specific value instead of T">
+```ts
+function make<T>(value: T): T {
+  return "hello";
+  // ❌ Type 'string' is not assignable to type 'T'.
+  //    'T' could be instantiated with an arbitrary type which could be unrelated to 'string'.
+}
+```
+
+The **caller** chooses T, not you. If someone calls `make<number>(1)`, you've promised to return a `number`. Inside the function, the only values you can return as T are ones that came from T-typed inputs.
+</Callout>
+
+<Callout type="mistake" title="Confusing the constraint with the type itself">
+```ts
+function minLength<T extends { length: number }>(obj: T, min: number): T {
+  if (obj.length >= min) return obj;
+  return { length: min };
+  // ❌ '{ length: number; }' is assignable to the constraint of type 'T',
+  //    but 'T' could be instantiated with a different subtype of constraint '{ length: number; }'.
+}
+```
+
+`T extends { length: number }` means T has **at least** `length`, not that T **is** `{ length: number }`. If T is `string[]`, `{ length: min }` isn't an array, and a caller who calls `.map` on the result crashes.
+</Callout>
+
+<Callout type="mistake" title="A pointless generic">
+```ts
+function log<T>(value: T): void { console.log(value); } // T is used only once
+function log2(value: unknown): void { console.log(value); } // ✓ simpler and just as safe
+```
+
+If a type parameter appears **only once** in the signature, it connects nothing and only makes the code harder to read. This is called the "rule of two": every type parameter should appear at least twice (say, once in an input and once in the output).
+</Callout>
+
+## Generics vs the alternatives
+
+| Tool | When? | Weakness |
+| --- | --- | --- |
+| A specific type (`number`) | only one type makes sense | not reusable |
+| A union (`string \| number`) | a small, known set of types, and the output doesn't depend on the input | doesn't preserve the input/output relationship |
+| Overloads | several completely different signatures (`(x: string) => string` and `(x: number) => number`) | repetitive; doesn't scale to unlimited cases |
+| `unknown` | accepts anything, and what comes back doesn't matter | you must narrow; doesn't preserve the type |
+| `any` | (almost) never | switches type checking off |
+| Generics | the same logic for any type **and** a preserved relationship between types | complex signatures can become unreadable |
+
+## Interview questions
+
+<QA q="What are generics in TypeScript and what problem do they solve?" level="junior" n={1}>
+<Answer>
+
+Generics let a function, class, `interface` or `type` take a **type** parameter (like `<T>`) that is filled in when it's used, usually by inference from the arguments. The problem they solve: writing reusable code that works with any type **without** losing type information. With `any` the code is reusable but the type is lost; with generics the relationship between input and output is preserved (`first<T>(arr: T[]): T`).
+
+</Answer>
+<Deep>
+
+Generics are resolved at compile time and erased completely from the JavaScript output. Unlike Java or C# generics, there's no runtime information about T, so `new T()` or `instanceof T` is impossible.
+
+</Deep>
+</QA>
+
+<QA q="What does `T extends X` mean in a generic?" level="mid" n={2}>
+<Answer>
+
+It's a constraint: T can be any type as long as it's assignable to X (has at least X's shape). It does two things: inside the function it lets you use X's members (such as `.length`), and it stops callers from passing an invalid type.
+
+</Answer>
+<Deep>
+
+T can still be a more specific **subtype** of X. That's why you can't return a value of type X as T; the error "T could be instantiated with a different subtype of constraint" says exactly that.
+
+</Deep>
+<Mistake>
+
+Thinking `extends` here means class inheritance.
+
+</Mistake>
+</QA>
+
+<QA q="Write a `getProp(obj, key)` function with a precise return type." level="mid" n={3}>
+<Answer>
+
+```ts
+function getProp<T, K extends keyof T>(obj: T, key: K): T[K] {
+  return obj[key];
+}
+```
+
+`keyof T` is the union of T's keys, so K can only be one of the real keys (a wrong key is a compile error). `T[K]` is the type of that key's value, so `getProp(user, "age")` returns a `number`, not a union of every value type.
+
+</Answer>
+</QA>
+
+<QA q="When shouldn't you use generics?" level="senior" n={4}>
+<Answer>
+
+When a type parameter appears only once in the signature and connects nothing; then `unknown` or the constraint itself is simpler and more readable. Also when there are only a few known types that a union or overloads describe better, and when the signature has become so complex that error messages are unintelligible to consumers.
+
+</Answer>
+<Deep>
+
+Another sign: if you have to write `as T` inside the function, you're probably making a promise you can't keep. Make a library's public API rich with generics but test its error messages too; application code usually needs only simple generics.
+
+</Deep>
+</QA>
+
+<QA q="Why do you need to write the type explicitly in `useState(null)`?" level="junior" n={5}>
+<Answer>
+
+Because T is inferred from the initial value. `useState(null)` makes the state type `null`, and later `setUser(someUser)` is an error. With `useState<User | null>(null)` we declare the right type explicitly. If the initial value fully represents the type (`useState(0)` or `useState("")`), you don't need to write it.
+
+</Answer>
+</QA>
+
+## Recap
+
+<Recap>
+
+- A generic is a **type** parameter (`<T>`): a slot for a type that gets filled in when it's used.
+- Its advantage over `any` is that the relationship between input and output types is preserved.
+- T is usually inferred from the arguments; when the arguments aren't enough (like `useState(null)` or `new Map()`), write it explicitly.
+- `T extends X` is a constraint: T has at least X's shape, so you can use X's members inside the function.
+- `K extends keyof T` and `T[K]` build functions that work with object keys and the exact types of their values.
+- `interface`, `type` and `class` can be generic too, and type parameters can have defaults (`<T = unknown>`).
+- `Array<T>`, `Promise<T>`, `Map<K, V>` and `Record<K, V>` are all generic.
+- The caller chooses T; you can't return a specific value as T.
+- Every type parameter should appear at least twice in the signature; otherwise `unknown` or a plain type is enough.
+- Generics don't exist at runtime: `new T()` and `instanceof T` are impossible.
+
+</Recap>

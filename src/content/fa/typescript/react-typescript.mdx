@@ -1,0 +1,536 @@
+## TypeScript در React چه چیزی اضافه می‌کند؟
+
+یک Component در React در واقع یک **تابع** است که یک Object به اسم `props` می‌گیرد و چیزی برای نمایش برمی‌گرداند. هر چیزی که در فصل‌های قبل درباره Type دادن به توابع یاد گرفتید اینجا هم صدق می‌کند. فرقش این است که حالا «صدا زدن تابع» به شکل JSX نوشته می‌شود:
+
+```tsx
+<Button label="Save" />
+// تقریباً یعنی: Button({ label: "Save" })
+```
+
+بدون TypeScript، اگر `label` را جا بیندازید یا اسمش را اشتباه بنویسید (`lable`)، فقط در زمان اجرا یک دکمه خالی می‌بینید. با TypeScript، Props یک Component **قرارداد** آن است: ویرایشگر Propهای مجاز را پیشنهاد می‌دهد و استفاده اشتباه همان لحظه خط قرمز می‌خورد. در یک پروژه بزرگ که ده‌ها نفر از Componentهای هم استفاده می‌کنند، این بزرگ‌ترین فایده TypeScript است.
+
+پیش‌نیاز: فایل‌هایی که JSX دارند باید پسوند `.tsx` داشته باشند، و Typeهای React از بسته `@types/react` می‌آیند (در React 19 همراه پروژه‌های Vite و Next نصب می‌شود).
+
+## Type دادن به Props
+
+Props را با یک `type` (یا `interface`) توصیف کنید و در پارامتر تابع Destructure کنید:
+
+```tsx
+type ButtonProps = {
+  label: string;                       // اجباری
+  variant?: "primary" | "ghost";       // اختیاری، با Union از Literalها
+  disabled?: boolean;
+  onClick?: () => void;                // تابعی که چیزی برنمی‌گرداند
+};
+
+function Button({ label, variant = "primary", disabled = false, onClick }: ButtonProps) {
+  // variant اینجا "primary" | "ghost" است، نه undefined؛ چون پیش‌فرض دارد
+  return (
+    <button className={variant} disabled={disabled} onClick={onClick}>
+      {label}
+    </button>
+  );
+}
+```
+
+حالا ببینیم TypeScript چه چیزهایی را می‌گیرد:
+
+```tsx
+<Button label="Save" />                  // ✓
+<Button />
+// ❌ Property 'label' is missing in type '{}' but required in type 'ButtonProps'.
+<Button label="Save" variant="red" />
+// ❌ Type '"red"' is not assignable to type '"ghost" | "primary" | undefined'.
+```
+
+### پیش‌فرض‌ها: Destructuring، نه `defaultProps`
+
+مقدار پیش‌فرض را در خود Destructuring بنویسید (`variant = "primary"`). TypeScript می‌فهمد داخل تابع دیگر `undefined` ممکن نیست. `defaultProps` برای Componentهای تابعی در React 19 حذف شده است.
+
+### `React.FC` لازم است؟
+
+ممکن است در کدهای قدیمی ببینید:
+
+```tsx
+const Button: React.FC<ButtonProps> = ({ label }) => <button>{label}</button>;
+```
+
+این هم کار می‌کند، ولی امروز بیشتر تیم‌ها همان **تابع معمولی با Props Typeدار** را ترجیح می‌دهند: ساده‌تر است، با Genericها راحت کار می‌کند (پایین‌تر می‌بینیم) و چیزی اضافه نمی‌کند. (تا React 17، `FC` به‌طور ضمنی `children` را اضافه می‌کرد که منبع باگ بود؛ از React 18 این حذف شد.)
+
+### نوع خروجی Component
+
+معمولاً لازم نیست بنویسید؛ TypeScript استنتاجش می‌کند. اگر خواستید صریح باشد:
+
+| Type | شامل چه چیزی |
+| --- | --- |
+| `React.JSX.Element` | فقط خروجی یک عبارت JSX (`<div />`) |
+| `ReactNode` | **هر** چیزی که React می‌تواند Render کند: JSX، رشته، عدد، `null`، `undefined`، Boolean، آرایه‌ای از این‌ها و (در React 19) Promise |
+
+<Callout type="note">
+در `@types/react` نسخه 19، فضای نام سراسری `JSX` حذف شده است. `JSX.Element` خطای «Cannot find namespace 'JSX'» می‌دهد؛ بنویسید `React.JSX.Element`.
+</Callout>
+
+## `children`
+
+`children` یک Prop معمولی است که React از محتوای بین تگ باز و بسته پر می‌کند. Type مناسبش تقریباً همیشه `ReactNode` است:
+
+```tsx
+import type { ReactNode } from "react";
+
+type CardProps = {
+  title: string;
+  children: ReactNode;
+};
+
+function Card({ title, children }: CardProps) {
+  return (
+    <section>
+      <h2>{title}</h2>
+      {children}
+    </section>
+  );
+}
+
+<Card title="Profile">
+  <p>Hello</p>        {/* ✓ JSX */}
+  {"some text"}       {/* ✓ رشته */}
+  {null}              {/* ✓ چیزی نمایش داده نمی‌شود */}
+</Card>
+```
+
+یک میان‌بر هم هست: `PropsWithChildren<P>` همان `P & { children?: ReactNode }` است (`children` را **اختیاری** اضافه می‌کند).
+
+<Callout type="mistake" title="Object به‌عنوان children">
+`ReactNode` شامل Object معمولی **نیست**. `<Card>{{ a: 1 }}</Card>` خطای کامپایل می‌دهد، و در زمان اجرا هم React خطای «Objects are not valid as a React child» می‌داد. TypeScript همان خطای زمان اجرا را زودتر نشان می‌دهد.
+</Callout>
+
+## `useState`
+
+`useState` یک Generic است (`useState<S>`). در بیشتر موارد S از **مقدار اولیه** استنتاج می‌شود و لازم نیست چیزی بنویسید:
+
+```tsx
+const [count, setCount] = useState(0);      // S = number
+setCount(5);                                 // ✓
+setCount((c) => c + 1);                      // ✓ c: number
+setCount("5");
+// ❌ Argument of type 'string' is not assignable to parameter of type 'SetStateAction<number>'.
+```
+
+`SetStateAction<number>` یعنی «یا یک `number`، یا تابعی که `number` قبلی را می‌گیرد و جدیدش را برمی‌گرداند»؛ دقیقاً دو شکلی که `setCount` قبول می‌کند.
+
+### وقتی مقدار اولیه نماینده کامل نوع نیست
+
+دو حالت رایج که **باید** Type را صریح بنویسید:
+
+```tsx
+type User = { id: number; name: string };
+
+// ۱. مقدار اولیه null است، بعداً یک User می‌آید
+const [user, setUser] = useState<User | null>(null);
+user.name;
+// ❌ 'user' is possibly 'null'.  ← درست است! هنوز بارگذاری نشده
+if (user) user.name;  // ✓ Narrowing
+
+// ۲. آرایه خالی
+const [items, setItems] = useState([]);
+setItems([1]);
+// ❌ Type 'number' is not assignable to type 'never'.  ← [] بدون Type می‌شود never[]
+const [items2, setItems2] = useState<number[]>([]); // ✓
+```
+
+| مقدار اولیه | نیاز به Type صریح؟ |
+| --- | --- |
+| `0`، `""`، `false` | نه |
+| `{ name: "", age: 0 }` (شکل کامل) | نه |
+| `null` یا `undefined` | **بله**: `useState<User \| null>(null)` |
+| `[]` | **بله**: `useState<Todo[]>([])` |
+| یک Union مثل `"idle"` که بعداً `"loading"` می‌شود | **بله**: `useState<Status>("idle")` |
+
+## `useRef`: دو کاربرد، دو الگو
+
+`useRef` دو کار کاملاً متفاوت انجام می‌دهد و Typeش هم برای هر کدام فرق دارد.
+
+### ۱. اشاره به یک DOM Element
+
+```tsx
+function SearchBox() {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  function focus() {
+    inputRef.current.focus();
+    // ❌ 'inputRef.current' is possibly 'null'.
+    inputRef.current?.focus(); // ✓
+  }
+
+  return <input ref={inputRef} />;
+}
+```
+
+چرا `null`؟ چون در اولین Render، قبل از اینکه React Element را در DOM بسازد، `current` هنوز `null` است. اسم Typeها را از DOM می‌گیرید: `HTMLInputElement`، `HTMLDivElement`، `HTMLButtonElement`، `HTMLFormElement`، `HTMLCanvasElement` و غیره. (ویرایشگر وقتی ماوس را روی `ref` در JSX ببرید Type دقیق را نشان می‌دهد.)
+
+### ۲. نگه داشتن یک مقدار تغییرپذیر بین Renderها
+
+```tsx
+const timerId = useRef<number | null>(null);
+
+function start() {
+  timerId.current = window.setTimeout(() => {}, 1000); // ✓ قابل نوشتن
+}
+function stop() {
+  if (timerId.current !== null) clearTimeout(timerId.current);
+}
+```
+
+(`window.setTimeout` عدد برمی‌گرداند. `setTimeout` بدون `window` در پروژه‌ای که Typeهای Node هم دارد ممکن است `NodeJS.Timeout` برگرداند. یک راه حل مستقل از محیط: `useRef<ReturnType<typeof setTimeout> | null>(null)`.)
+
+## Eventها
+
+وقتی Handler را **مستقیم داخل JSX** بنویسید، TypeScript نوع `e` را از Prop استنتاج می‌کند و لازم نیست چیزی بنویسید:
+
+```tsx
+<input onChange={(e) => console.log(e.target.value)} /> // e خودکار Type دارد
+```
+
+اما وقتی Handler را **جدا** تعریف می‌کنید، باید Type رویداد را بنویسید. این Typeها Generic هستند و پارامترشان Elementی است که Handler روی آن نصب شده:
+
+```tsx
+import type { ChangeEvent, FormEvent, MouseEvent, KeyboardEvent } from "react";
+
+function SignupForm() {
+  const [email, setEmail] = useState("");
+
+  const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
+    setEmail(e.target.value);              // value: string
+  };
+
+  const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();                    // جلوی Reload صفحه را می‌گیرد
+  };
+
+  const handleKey = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") console.log("enter pressed");
+  };
+
+  const handleClick = (e: MouseEvent<HTMLButtonElement>) => {
+    e.currentTarget.disabled = true;       // currentTarget: HTMLButtonElement
+  };
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <input value={email} onChange={handleChange} onKeyDown={handleKey} />
+      <button onClick={handleClick}>Sign up</button>
+    </form>
+  );
+}
+```
+
+| Prop | Type رویداد | Element رایج |
+| --- | --- | --- |
+| `onChange` | `ChangeEvent<T>` | `HTMLInputElement`، `HTMLSelectElement`، `HTMLTextAreaElement` |
+| `onSubmit` | `FormEvent<T>` (در نسخه‌های جدید `SubmitEvent<T>` هم هست) | `HTMLFormElement` |
+| `onClick`، `onMouseEnter` | `MouseEvent<T>` | `HTMLButtonElement`، `HTMLDivElement` |
+| `onKeyDown`، `onKeyUp` | `KeyboardEvent<T>` | `HTMLInputElement` |
+| `onFocus`، `onBlur` | `FocusEvent<T>` | `HTMLInputElement` |
+
+<Callout type="tip" title="ترفند پیدا کردن Type">
+اگر مطمئن نیستید Type یک رویداد چیست، اول Handler را Inline بنویسید و ماوس را روی `e` ببرید؛ ویرایشگر Type دقیق را نشان می‌دهد. بعد آن را کپی کنید.
+</Callout>
+
+<Callout type="mistake" title="target در برابر currentTarget">
+`e.currentTarget` همیشه Elementی است که Handler روی آن نصب شده و Typeش دقیق است (همان T). `e.target` Elementی است که رویداد **از آن شروع شده** و ممکن است یکی از فرزندان باشد (مثلاً یک `span` داخل دکمه)؛ برای همین در `MouseEvent` Typeش فقط `EventTarget` است. (در `ChangeEvent`، `target` به‌طور خاص همان T است.)
+</Callout>
+
+## `useReducer` با Discriminated Union
+
+این جایی است که [Discriminated Union](/typescript/narrowing#discriminated-union-مهمترین-الگوی-این-فصل) واقعاً می‌درخشد. هر Action یک `type` دارد و فقط داده‌های خودش را:
+
+```tsx
+type Action =
+  | { type: "increment" }
+  | { type: "add"; amount: number }
+  | { type: "reset" };
+
+function reducer(state: number, action: Action): number {
+  switch (action.type) {
+    case "increment": return state + 1;
+    case "add":       return state + action.amount; // amount فقط اینجا وجود دارد
+    case "reset":     return 0;
+  }
+}
+
+function Counter() {
+  const [count, dispatch] = useReducer(reducer, 0);
+
+  dispatch({ type: "add", amount: 5 }); // ✓
+  dispatch({ type: "add" });
+  // ❌ Property 'amount' is missing in type '{ type: "add"; }' but required in type '{ type: "add"; amount: number; }'.
+  dispatch({ type: "decrement" });      // ❌ چنین Actionی وجود ندارد
+  return <p>{count}</p>;
+}
+```
+
+`useReducer` Type State و Action را از خود تابع `reducer` استنتاج می‌کند؛ پس فقط کافی است `reducer` را درست Type بدهید.
+
+## Context
+
+مشکل Context این است که `createContext` یک مقدار پیش‌فرض می‌خواهد، ولی مقدار واقعی تا وقتی Provider Render نشده وجود ندارد. الگوی استاندارد این است:
+
+```tsx
+type Theme = "light" | "dark";
+type ThemeContextValue = { theme: Theme; toggle: () => void };
+
+// ۱. مقدار پیش‌فرض null است و Type آن را می‌پذیرد
+const ThemeContext = createContext<ThemeContextValue | null>(null);
+
+// ۲. یک Hook سفارشی که null را یک بار و برای همیشه حذف می‌کند
+function useTheme() {
+  const ctx = useContext(ThemeContext);
+  if (ctx === null) {
+    throw new Error("useTheme must be used inside <ThemeProvider>");
+  }
+  return ctx; // ThemeContextValue؛ بدون null
+}
+
+// ۳. Provider
+function ThemeProvider({ children }: { children: ReactNode }) {
+  const [theme, setTheme] = useState<Theme>("light");
+  const toggle = () => setTheme((t) => (t === "light" ? "dark" : "light"));
+  return <ThemeContext value={{ theme, toggle }}>{children}</ThemeContext>;
+}
+
+// ۴. مصرف
+function ThemeButton() {
+  const { theme, toggle } = useTheme(); // بدون ?. و بدون !
+  return <button onClick={toggle}>{theme}</button>;
+}
+```
+
+(در React 19 خود `<ThemeContext>` به‌عنوان Provider کار می‌کند؛ در نسخه‌های قبل `<ThemeContext.Provider>` بنویسید.)
+
+چرا این الگو خوب است؟ اگر کسی `useTheme` را بیرون از Provider صدا بزند، به‌جای یک باگ مبهم (`undefined is not a function`) یک خطای واضح می‌گیرد، و همه مصرف‌کننده‌ها یک Type تمیز بدون `null` دارند.
+
+## گسترش Propهای یک Element بومی
+
+فرض کنید یک `Input` سفارشی می‌سازید که یک `label` اضافه دارد، ولی باید **همه** Attributeهای معمولی `<input>` (`type`، `placeholder`، `onChange`، `disabled`، `aria-*`، ...) را هم بپذیرد. نوشتن دستی‌شان غیرممکن است. `ComponentProps` آن‌ها را برایتان می‌آورد:
+
+```tsx
+import type { ComponentProps } from "react";
+
+type InputProps = ComponentProps<"input"> & {
+  label: string;
+};
+
+function Input({ label, ...rest }: InputProps) {
+  return (
+    <label>
+      {label}
+      <input {...rest} /> {/* هر چیز دیگری مستقیم به input می‌رسد */}
+    </label>
+  );
+}
+
+<Input label="Email" type="email" placeholder="you@example.com" required />; // ✓
+```
+
+| Utility | چه چیزی می‌دهد |
+| --- | --- |
+| `ComponentProps<"button">` | همه Propهای `<button>` (شامل `ref` در React 19) |
+| `ComponentPropsWithoutRef<"button">` | همان بدون `ref` |
+| `ComponentProps<typeof MyComponent>` | Propهای یک Component دیگر؛ وقتی Typeش export نشده |
+
+اگر می‌خواهید یک Prop بومی را با Type دیگری جایگزین کنید، اول با `Omit` حذفش کنید: `Omit<ComponentProps<"input">, "size"> & { size: "sm" | "lg" }`.
+
+## `ref` به‌عنوان Prop (React 19)
+
+تا React 18، برای اینکه یک Component بتواند `ref` بگیرد باید آن را در `forwardRef` می‌پیچیدید. در React 19، `ref` یک **Prop معمولی** است و `ComponentProps<"input">` آن را دارد:
+
+```tsx
+function MyInput({ ref, ...props }: ComponentProps<"input">) {
+  return <input ref={ref} {...props} />;
+}
+
+function Parent() {
+  const inputRef = useRef<HTMLInputElement>(null);
+  return <MyInput ref={inputRef} />; // ✓ بدون forwardRef
+}
+```
+
+## Component جنریک
+
+گاهی یک Component با **هر نوع داده‌ای** کار می‌کند، مثل یک لیست یا جدول یا Select. اگر Typeش را `any` یا `unknown` بگذارید، Callbackها Type دقیق آیتم را نمی‌دانند. راه حل همان [Generic](/typescript/generics) است:
+
+```tsx
+type ListProps<T> = {
+  items: T[];
+  getKey: (item: T) => string | number;
+  renderItem: (item: T) => ReactNode;
+};
+
+function List<T>({ items, getKey, renderItem }: ListProps<T>) {
+  return (
+    <ul>
+      {items.map((item) => (
+        <li key={getKey(item)}>{renderItem(item)}</li>
+      ))}
+    </ul>
+  );
+}
+
+const users = [{ id: 1, name: "Sara" }];
+
+<List
+  items={users}                   // T = { id: number; name: string } استنتاج شد
+  getKey={(u) => u.id}            // u خودکار Type دارد
+  renderItem={(u) => u.nam}
+  // ❌ Property 'nam' does not exist on type '{ id: number; name: string; }'. Did you mean 'name'?
+/>;
+```
+
+TypeScript از `items` نوع T را پیدا کرد و آن را به `getKey` و `renderItem` رساند. (اگر Component را به شکل Arrow Function در `.tsx` می‌نویسید، یادتان باشد `<T,>` بنویسید.)
+
+## Propهای وابسته به هم با Discriminated Union
+
+گاهی Propها به هم وابسته‌اند: «اگر `as="a"` است، `href` لازم است؛ اگر `as="button"`، `onClick`». با Propهای اختیاری مستقل نمی‌شود این را بیان کرد. با Discriminated Union می‌شود:
+
+```tsx
+type ActionProps =
+  | { as: "button"; onClick: () => void }
+  | { as: "a"; href: string };
+
+function Action(props: ActionProps) {
+  if (props.as === "a") return <a href={props.href}>link</a>;
+  return <button onClick={props.onClick}>button</button>;
+}
+
+<Action as="a" href="/home" />;            // ✓
+<Action as="a" onClick={() => {}} />;
+// ❌ Property 'onClick' does not exist on type 'IntrinsicAttributes & { as: "a"; href: string; }'.
+```
+
+(دقت کنید که `props` را Destructure نکردیم؛ برای Narrowing روی یک Union بهتر است Object را نگه دارید.)
+
+## Hook سفارشی: Tuple را با `as const` برگردانید
+
+اگر Hook شما مثل `useState` یک آرایه برمی‌گرداند، دامی وجود دارد:
+
+```tsx
+function useToggle(initial = false) {
+  const [on, setOn] = useState(initial);
+  const toggle = () => setOn((v) => !v);
+  return [on, toggle];
+  // Type استنتاج‌شده: (boolean | (() => void))[]  ← یک آرایه معمولی، نه Tuple
+}
+
+const [isOpen, toggleOpen] = useToggle();
+toggleOpen();
+// ❌ This expression is not callable. Not all constituents of type 'boolean | (() => void)' are callable.
+```
+
+TypeScript آرایه را «آرایه‌ای که هر عضوش Boolean یا تابع است» می‌بیند، نه «اولی Boolean، دومی تابع». با `as const` آن را Tuple کنید:
+
+```tsx
+return [on, toggle] as const; // readonly [boolean, () => void]
+```
+
+اگر بیش از دو مقدار برمی‌گردانید، یک Object برگردانید (`return { on, toggle, setOn }`)؛ هم این مشکل را ندارد و هم ترتیب مهم نیست.
+
+## داده‌ای که از سرور می‌آید
+
+`fetch(...).then(r => r.json())` نوع `any` برمی‌گرداند. نوشتن `as User[]` فقط به کامپایلر **قول** می‌دهد و هیچ بررسی‌ای نمی‌کند. اگر Backend شکل پاسخ را عوض کند، باگ تا زمان اجرا پنهان می‌ماند. برای داده‌های مهم، پاسخ را `unknown` بگیرید و با یک [Type Guard](/typescript/narrowing#type-predicate-type-guard-خودتان-را-بسازید) یا کتابخانه‌ای مثل Zod اعتبارسنجی کنید.
+
+## اشتباهات رایج
+
+- `useState(null)` یا `useState([])` بدون Type صریح.
+- جا انداختن `null` در `useRef<HTMLInputElement>(null)` (در React 19 بدون آرگومان خطای «Expected 1 arguments» می‌گیرید) و بعد صدا زدن `inputRef.current.focus()` بدون بررسی `null`.
+- استفاده از `any` برای Event (`(e: any) => ...`) به‌جای Typeهای `ChangeEvent` و غیره.
+- نوشتن دستی همه Attributeهای یک Element به‌جای `ComponentProps<"input">`.
+- `createContext<T>({} as T)`: یک دروغ به کامپایلر که بیرون از Provider کرش می‌کند.
+- Propهای اختیاری مستقل برای حالت‌هایی که به هم وابسته‌اند، به‌جای Discriminated Union.
+- برگرداندن آرایه از Hook سفارشی بدون `as const`.
+- استفاده از `JSX.Element` سراسری در React 19 (`React.JSX.Element` درست است).
+
+## سوالات مصاحبه
+
+<QA q="Props یک Component را چطور Type می‌دهید؟ `React.FC` را توصیه می‌کنید؟" level="junior" n={1}>
+<Answer>
+
+با یک `type` یا `interface` برای Props و Annotate کردن پارامتر تابع: `function Button({ label }: ButtonProps)`. پیش‌فرض‌ها را در Destructuring می‌نویسم. `React.FC` لازم نیست؛ تابع معمولی ساده‌تر است، با Componentهای Generic بهتر کار می‌کند و نوع خروجی را هم TypeScript استنتاج می‌کند.
+
+</Answer>
+<Deep>
+
+قبل از React 18، `FC` به‌طور ضمنی `children` اضافه می‌کرد، پس Componentی که `children` را استفاده نمی‌کرد هم آن را می‌پذیرفت. این حذف شده، ولی دلیلی برای برگشتن به `FC` هم نیست.
+
+</Deep>
+</QA>
+
+<QA q="تفاوت `ReactNode` و `React.JSX.Element` چیست؟ برای `children` کدام؟" level="mid" n={2}>
+<Answer>
+
+`React.JSX.Element` فقط خروجی یک عبارت JSX است. `ReactNode` هر چیزی است که React می‌تواند Render کند: JSX، رشته، عدد، Boolean، `null`، `undefined`، آرایه‌ای از این‌ها و در React 19 Promise. برای `children` تقریباً همیشه `ReactNode`، چون کاربر ممکن است متن یا چند Element یا هیچ چیز بفرستد.
+
+</Answer>
+</QA>
+
+<QA q="یک Context را چطور Type می‌دهید که مصرف‌کننده‌ها با `null` درگیر نشوند؟" level="mid" n={3}>
+<Answer>
+
+`createContext<Value | null>(null)` و یک Hook سفارشی که `useContext` را صدا می‌زند، اگر `null` بود یک خطای واضح پرتاب می‌کند و در غیر این صورت مقدار را برمی‌گرداند. Narrowing در Hook انجام می‌شود و همه مصرف‌کننده‌ها نوع تمیز `Value` می‌گیرند.
+
+</Answer>
+<Mistake>
+
+`createContext({} as Value)`؛ کامپایل می‌شود ولی بیرون از Provider یک Object خالی برمی‌گرداند و کرش مبهم می‌دهد.
+
+</Mistake>
+</QA>
+
+<QA q="یک Component لیست جنریک بنویسید." level="senior" n={4}>
+<Answer>
+
+```tsx
+type ListProps<T> = {
+  items: T[];
+  getKey: (item: T) => string | number;
+  renderItem: (item: T) => ReactNode;
+};
+
+function List<T>({ items, getKey, renderItem }: ListProps<T>) {
+  return <ul>{items.map((i) => <li key={getKey(i)}>{renderItem(i)}</li>)}</ul>;
+}
+```
+
+T از `items` استنتاج می‌شود و Callbackها Type دقیق آیتم را می‌گیرند.
+
+</Answer>
+<FollowUp>
+
+اگر بخواهید `renderItem` اختیاری باشد ولی وقتی نیست، آیتم‌ها باید رشته باشند، چطور Typeش می‌دهید؟ (راهنمایی: Overload یا Discriminated Union روی Props.)
+
+</FollowUp>
+</QA>
+
+<QA q="چطور یک Component بسازید که همه Propهای `<button>` را هم بپذیرد؟" level="mid" n={5}>
+<Answer>
+
+`type Props = ComponentProps<"button"> & { variant: "primary" | "ghost" }`، و بعد `{ variant, ...rest }` را Destructure کنید و `rest` را روی `<button>` Spread کنید. در React 19، `ref` هم جزو همین Propهاست و `forwardRef` لازم نیست.
+
+</Answer>
+</QA>
+
+## جمع‌بندی
+
+<Recap>
+
+- Props را با `type` یا `interface` تعریف کنید، پارامتر را Annotate کنید و پیش‌فرض‌ها را در Destructuring بنویسید؛ `React.FC` لازم نیست.
+- `children` را `ReactNode` بگذارید؛ در React 19 از `React.JSX.Element` به‌جای `JSX.Element` سراسری استفاده کنید.
+- `useState` Type را از مقدار اولیه استنتاج می‌کند؛ برای `null`، `[]` و Unionها Type را صریح بنویسید.
+- `useRef<HTMLInputElement>(null)` برای DOM (`current` ممکن است `null` باشد) و `useRef<T>(initial)` برای مقدار تغییرپذیر.
+- Handler داخل JSX Type را خودش می‌گیرد؛ Handler جدا `ChangeEvent<T>`، `FormEvent<T>`، `MouseEvent<T>` و `KeyboardEvent<T>` می‌خواهد.
+- Actionهای `useReducer` را Discriminated Union کنید.
+- Context: `createContext<T | null>(null)` به‌همراه یک Hook سفارشی که `null` را با یک خطای واضح حذف می‌کند.
+- `ComponentProps<"input">` همه Propهای بومی را می‌آورد؛ در React 19 `ref` یک Prop معمولی است.
+- Componentهای جنریک (`List<T>`) و Propهای Discriminated Union، APIهای دقیق و امن می‌سازند.
+- Hook سفارشی که Tuple برمی‌گرداند به `as const` نیاز دارد؛ داده سرور را اعتبارسنجی کنید، نه `as`.
+
+</Recap>

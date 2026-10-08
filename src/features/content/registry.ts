@@ -345,6 +345,26 @@ const descriptions: Record<string, Localized> = {
     fa: 'انواع خطا، try/catch/finally، ساختن Error سفارشی، خطا در کد Async و مدیریت خطای سراسری.',
     en: 'Error types, try/catch/finally, custom errors, errors in async code and global error handling.',
   },
+  'typescript/fundamentals': {
+    fa: 'TypeScript چه مشکلی را حل می‌کند، Typeهای پایه، Type Inference، interface و type و تنظیمات tsconfig.',
+    en: 'What problem TypeScript solves, basic types, type inference, interface vs type and tsconfig settings.',
+  },
+  'typescript/narrowing': {
+    fa: 'کار با Union بدون خطا؛ typeof، in، instanceof، Discriminated Union، بررسی never، Type Predicate و Assertion Function.',
+    en: 'Working with unions safely: typeof, in, instanceof, discriminated unions, never checks, type predicates and assertion functions.',
+  },
+  'typescript/generics': {
+    fa: 'پارامتر نوع از صفر: استنتاج T، Constraint با extends، keyof و T[K]، Interface و کلاس جنریک و دام‌های رایج.',
+    en: 'Type parameters from scratch: inferring T, constraints with extends, keyof and T[K], generic interfaces and classes, and common traps.',
+  },
+  'typescript/advanced-types': {
+    fa: 'ساختن Type از روی Type؛ keyof و typeof، همه Utility Typeها، Mapped و Conditional Type، infer، Template Literal و Branded Type.',
+    en: 'Building types from types: keyof and typeof, every utility type, mapped and conditional types, infer, template literals and branded types.',
+  },
+  'typescript/react-typescript': {
+    fa: 'Props و children، useState و useRef، Type رویدادها، useReducer و Context، ComponentProps، Component جنریک و ref در React 19.',
+    en: 'Props and children, useState and useRef, event types, useReducer and context, ComponentProps, generic components and ref in React 19.',
+  },
 }
 
 for (const part of parts) {

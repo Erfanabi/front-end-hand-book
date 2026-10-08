@@ -1,0 +1,531 @@
+## چرا Typeهای پیشرفته؟ یک منبع حقیقت
+
+فرض کنید Type کاربر را تعریف کرده‌اید:
+
+```ts
+type User = {
+  id: number;
+  name: string;
+  email: string;
+  role: "admin" | "editor" | "viewer";
+};
+```
+
+حالا فرم ویرایش کاربر را می‌سازید، و در آن همه فیلدها **اختیاری** هستند (کاربر فقط چیزی را که عوض کرده می‌فرستد). فرم ساخت کاربر `id` ندارد (سرور می‌سازدش). جدول کاربران فقط `name` و `email` را نشان می‌دهد. اگر برای هر کدام یک Type جدید دستی بنویسید، چه می‌شود؟
+
+```ts
+// ❌ نسخه‌های دستی: یک ماه بعد کسی phone را به User اضافه می‌کند و این‌ها را یادش می‌رود
+type UserUpdate = { id?: number; name?: string; email?: string; role?: "admin" | "editor" | "viewer" };
+type NewUser    = { name: string; email: string; role: "admin" | "editor" | "viewer" };
+type UserRow    = { name: string; email: string };
+```
+
+این‌ها **کپی** هستند و با تغییر `User` همگام نمی‌مانند. ایده این فصل این است: Typeهای جدید را **از روی** Typeهای موجود **بسازید**، همان‌طور که در کد معمولی از روی یک داده، داده جدید می‌سازید.
+
+```ts
+// ✓ مشتق‌شده: اگر User عوض شود، همه این‌ها خودکار عوض می‌شوند
+type UserUpdate = Partial<User>;
+type NewUser    = Omit<User, "id">;
+type UserRow    = Pick<User, "name" | "email">;
+```
+
+برای اینکه بفهمیم `Partial` و `Omit` چطور کار می‌کنند، اول ابزارهای پایه را یاد می‌گیریم: عملگرهای Type، بعد Mapped Type، بعد Conditional Type. آخر سر خواهید دید همه Utility Typeها با همین چند ابزار در چند خط ساخته شده‌اند.
+
+## عملگرهای پایه Type
+
+### `keyof`: کلیدهای یک Type
+
+`keyof T` یک Union از نام همه کلیدهای T می‌سازد:
+
+```ts
+type UserKey = keyof User; // "id" | "name" | "email" | "role"
+
+const k: UserKey = "email"; // ✓
+const bad: UserKey = "age"; // ❌ "age" کلید User نیست
+```
+
+### `typeof` در جایگاه Type: گرفتن Type از یک مقدار
+
+`typeof` را از JavaScript می‌شناسید (یک رشته برمی‌گرداند). اما وقتی در **جایگاه Type** نوشته شود (بعد از `:` یا در `type X =`)، یک کار کاملاً متفاوت می‌کند: Type یک **متغیر** را برمی‌گرداند.
+
+```ts
+const config = { port: 3000, host: "localhost", debug: false };
+
+type Config = typeof config;
+// { port: number; host: string; debug: boolean }
+```
+
+این وقتی مفید است که **داده اول آمده** و نمی‌خواهید Typeش را دوباره بنویسید. مثلاً یک Object تنظیمات، یا خروجی یک تابع.
+
+### Indexed Access: `T[K]`
+
+با همان Syntax دسترسی به Property، می‌توانید Type یک Property را بخوانید:
+
+```ts
+type Role = User["role"];               // "admin" | "editor" | "viewer"
+type IdOrName = User["id" | "name"];    // number | string
+type ValueOf<T> = T[keyof T];           // Union همه Typeهای مقدار
+type UserValue = ValueOf<User>;         // number | string | "admin" | ...
+```
+
+یک ترفند بسیار پرکاربرد: `T[number]` روی یک آرایه یا Tuple، Type اعضای آن را می‌دهد. همراه با `as const` می‌توانید یک Union را از یک آرایه واقعی بسازید و هر دو را همگام نگه دارید:
+
+```ts
+const ROLES = ["admin", "editor", "viewer"] as const; // readonly ["admin", "editor", "viewer"]
+type Role2 = (typeof ROLES)[number];                  // "admin" | "editor" | "viewer"
+
+const r: Role2 = "viewer"; // ✓
+// حالا ROLES هم در زمان اجرا در دسترس است (مثلاً برای ساختن یک <select>)
+```
+
+<Steps>
+<Step title="as const">
+آرایه را `readonly` و اعضایش را Literal می‌کند. بدون آن Type آرایه فقط `string[]` می‌شد و اسم نقش‌ها گم می‌شد.
+</Step>
+<Step title="typeof ROLES">
+از مقدار به Type می‌رویم: `readonly ["admin", "editor", "viewer"]`.
+</Step>
+<Step title="[number]">
+«Type عضو در هر اندیس عددی»؛ یعنی Union همه اعضا: `"admin" | "editor" | "viewer"`.
+</Step>
+</Steps>
+
+## Utility Typeهای داخلی
+
+TypeScript تعدادی Type آماده دارد که همه Generic هستند ([فصل Generics](/typescript/generics) را ببینید). این‌ها پرکاربردترین‌ها هستند. برای هر کدام: چه می‌کند، مثال، و کجا به کار می‌آید.
+
+<Api name="Partial<T>" sig="Partial<T>" returns="همان T که **همه** Propertyهایش اختیاری (`?`) شده‌اند." mutates="no">
+
+- `T`: یک Object Type. فقط سطح اول اختیاری می‌شود؛ Objectهای تودرتو دست نمی‌خورند.
+
+</Api>
+
+```ts
+type UserUpdate = Partial<User>;
+// { id?: number; name?: string; email?: string; role?: ... }
+
+function updateUser(id: number, changes: Partial<User>) { /* ... */ }
+updateUser(1, { name: "Sara" }); // ✓ فقط چیزی که عوض شده
+```
+
+<Api name="Required<T>" sig="Required<T>" returns="برعکس `Partial`: همه Propertyهای اختیاری **اجباری** می‌شوند." mutates="no">
+
+- `T`: یک Object Type. `?` از همه Propertyها حذف می‌شود (و `undefined`ی که از `?` آمده بود هم حذف می‌شود).
+
+</Api>
+
+```ts
+type Settings = { theme?: "light" | "dark"; lang?: string };
+const defaults: Required<Settings> = { theme: "light", lang: "fa" }; // هر دو لازم‌اند
+```
+
+<Api name="Readonly<T>" sig="Readonly<T>" returns="همان T که همه Propertyهایش `readonly` شده‌اند؛ نوشتن روی آن‌ها خطای کامپایل است." mutates="no">
+
+- `T`: یک Object Type. Readonly **سطحی** است: Objectهای تودرتو همچنان قابل تغییرند.
+- فقط در زمان کامپایل است؛ برای جلوگیری واقعی در زمان اجرا از `Object.freeze` استفاده کنید.
+
+</Api>
+
+```ts
+const state: Readonly<User> = { id: 1, name: "Ali", email: "a@b.c", role: "admin" };
+state.name = "Reza";
+// ❌ Cannot assign to 'name' because it is a read-only property.
+```
+
+<Api name="Pick<T, K>" sig="Pick<T, K extends keyof T>" returns="یک Type جدید که **فقط** کلیدهای K از T را دارد." mutates="no">
+
+- `T`: Type منبع.
+- `K`: یک کلید یا Union از کلیدها. باید کلید واقعی T باشد؛ وگرنه خطا: «Type '"nope"' does not satisfy the constraint 'keyof User'».
+
+</Api>
+
+<Api name="Omit<T, K>" sig="Omit<T, K extends keyof any>" returns="یک Type جدید با **همه** کلیدهای T **به جز** K." mutates="no">
+
+- `T`: Type منبع.
+- `K`: کلید(هایی) که حذف می‌شوند. دقت کنید: Constraint آن `keyof any` است، نه `keyof T`؛ پس اگر اسم کلید را اشتباه بنویسید **خطایی نمی‌گیرید** و هیچ چیزی حذف نمی‌شود.
+
+</Api>
+
+```ts
+type UserRow = Pick<User, "name" | "email">; // { name: string; email: string }
+type NewUser = Omit<User, "id">;             // { name; email; role }
+
+type Oops = Omit<User, "idd">;               // بدون خطا! هیچ چیزی حذف نشد
+```
+
+| | `Pick` | `Omit` |
+| --- | --- | --- |
+| چه چیزی می‌ماند | فقط کلیدهای گفته‌شده | همه به جز کلیدهای گفته‌شده |
+| کلید اشتباه | خطای کامپایل | بدون خطا (دام!) |
+| کی؟ | چند کلید از یک Type بزرگ لازم دارید | تقریباً همه را لازم دارید به جز یکی دو تا |
+
+<Api name="Record<K, V>" sig="Record<K extends keyof any, V>" returns="یک Object Type که کلیدهایش K و مقدار هر کلید V است." mutates="no">
+
+- `K`: Type کلیدها؛ `string`، `number`، `symbol` یا یک Union از Literalها. اگر Union از Literal باشد، **همه** کلیدها اجباری‌اند.
+- `V`: Type مقدار هر کلید.
+
+</Api>
+
+```ts
+type Role = User["role"];
+const labels: Record<Role, string> = {
+  admin: "مدیر",
+  editor: "ویرایشگر",
+  viewer: "بیننده",   // اگر یکی را جا بیندازید خطای کامپایل می‌گیرید
+};
+
+const cache: Record<string, User> = {}; // هر کلید رشته‌ای
+```
+
+### Utility Typeهایی که روی Union کار می‌کنند
+
+<Api name="Exclude<T, U> · Extract<T, U> · NonNullable<T>" sig="Exclude<T, U> · Extract<T, U> · NonNullable<T>" returns="`Exclude`: اعضایی از Union T که به U قابل انتساب **نیستند**. `Extract`: اعضایی که **هستند**. `NonNullable`: T بدون `null` و `undefined`." mutates="no">
+
+- `T`: یک Union (یا هر Type).
+- `U`: Typeی که اعضای T با آن مقایسه می‌شوند.
+
+</Api>
+
+```ts
+type Status = "idle" | "loading" | "success" | "error";
+
+type Done = Exclude<Status, "idle" | "loading">;   // "success" | "error"
+type Busy = Extract<Status, "loading" | "pending">; // "loading" ("pending" در Status نبود)
+type Fn   = Extract<string | number | (() => void), Function>; // () => void
+type Name = NonNullable<string | null | undefined>; // string
+```
+
+`Omit` روی کلیدهای Object کار می‌کند و `Exclude` روی اعضای یک Union. اشتباه گرفتن این دو رایج است.
+
+### Utility Typeهایی که روی تابع و Promise کار می‌کنند
+
+<Api name="ReturnType<F> · Parameters<F> · Awaited<T> · InstanceType<C>" sig="ReturnType<typeof fn> · Parameters<typeof fn> · Awaited<T> · InstanceType<typeof Cls>" returns="`ReturnType`: Type خروجی تابع. `Parameters`: Tupleی از Type پارامترها. `Awaited`: Typeی که `await` می‌دهد (حتی برای Promiseهای تودرتو). `InstanceType`: Type شیئی که `new` می‌سازد." mutates="no">
+
+- `F`: Type یک **تابع**؛ پس روی یک تابع واقعی باید `typeof fn` بنویسید، نه `fn`.
+- `C`: Type یک کلاس (سازنده)؛ `typeof MyClass`.
+
+</Api>
+
+```ts
+function createUser(name: string, age: number) {
+  return { id: Date.now(), name, age };
+}
+
+type CreatedUser = ReturnType<typeof createUser>; // { id: number; name: string; age: number }
+type CreateArgs  = Parameters<typeof createUser>; // [name: string, age: number]
+type FirstArg    = CreateArgs[0];                 // string
+
+async function fetchCount() { return 42; }
+type Count = Awaited<ReturnType<typeof fetchCount>>; // number (نه Promise<number>)
+
+type N = Awaited<Promise<Promise<number>>>;          // number؛ همه لایه‌ها باز می‌شوند
+```
+
+این‌ها وقتی ارزشمندند که کد کتابخانه دیگری را مصرف می‌کنید که Typeش را export نکرده؛ آن را از روی خود تابع بیرون می‌کشید.
+
+## Mapped Type: حلقه for روی کلیدها
+
+حالا وقت آن است که ببینیم `Partial` چطور ساخته شده. **Mapped Type** یک Type جدید می‌سازد با این روش: «برای هر کلید در یک مجموعه کلید، یک Property بساز». Syntax آن شبیه یک حلقه `for...in` است:
+
+```ts
+type MyPartial<T> = {
+  [K in keyof T]?: T[K];
+};
+```
+
+بیایید این را تکه‌تکه بخوانیم:
+
+- `keyof T`: مجموعه کلیدها، مثلاً `"id" | "name"`.
+- `K in ...`: «K به ترتیب هر کدام از این کلیدها می‌شود» (مثل متغیر حلقه).
+- `?`: Property ساخته‌شده را اختیاری کن.
+- `T[K]`: Type مقدار همان کلید در T را نگه دار.
+
+```text
+ T = { id: number; name: string }
+
+ K = "id"    →  id?:   T["id"]    →  id?:   number
+ K = "name"  →  name?: T["name"]  →  name?: string
+
+ نتیجه:  { id?: number; name?: string }
+```
+
+### Modifierها: اضافه و حذف کردن `readonly` و `?`
+
+در Mapped Type می‌توانید `readonly` و `?` را **اضافه** (`+`، که پیش‌فرض است و معمولاً نوشته نمی‌شود) یا **حذف** (`-`) کنید:
+
+```ts
+type MyReadonly<T> = { readonly [K in keyof T]: T[K] };   // اضافه کردن readonly
+type MyRequired<T> = { [K in keyof T]-?: T[K] };          // حذف ?
+type Mutable<T>    = { -readonly [K in keyof T]: T[K] };  // حذف readonly (Utility داخلی ندارد)
+```
+
+حالا می‌بینید که `Partial`، `Required` و `Readonly` هر کدام یک خط‌اند.
+
+### بازنام‌گذاری کلیدها با `as`
+
+از TypeScript 4.1 می‌توانید با `as` اسم کلید را هم تغییر دهید. مثلاً ساختن Getter برای هر Property:
+
+```ts
+type Getters<T> = {
+  [K in keyof T as `get${Capitalize<string & K>}`]: () => T[K];
+};
+
+type PersonGetters = Getters<{ name: string; age: number }>;
+// { getName: () => string; getAge: () => number }
+```
+
+(`string & K` لازم است چون کلیدها می‌توانند `number` یا `symbol` هم باشند و `Capitalize` فقط رشته می‌گیرد. `Capitalize` و Template Literal را پایین‌تر می‌بینیم.)
+
+اگر در `as` به `never` برسید، آن کلید **حذف** می‌شود. این راهی برای فیلتر کردن کلیدها بر اساس Type مقدارشان است:
+
+```ts
+type OnlyStrings<T> = {
+  [K in keyof T as T[K] extends string ? K : never]: T[K];
+};
+
+type Product = { id: number; title: string; slug: string; price: number };
+type ProductText = OnlyStrings<Product>; // { title: string; slug: string }
+```
+
+<Callout type="mistake" title="Propertyهای اختیاری در فیلتر">
+اگر Product یک `note?: string` داشت، در `ProductText` **نمی‌آمد**. Type مقدار یک Property اختیاری `string | undefined` است و `string | undefined extends string` نادرست است. اگر می‌خواهید آن‌ها هم بمانند، شرط را `NonNullable<T[K]> extends string` بنویسید.
+</Callout>
+
+## Conditional Type: `if` در دنیای Typeها
+
+**Conditional Type** یک Type را بر اساس یک شرط انتخاب می‌کند. Syntax آن شبیه عملگر سه‌تایی JavaScript است:
+
+```ts
+T extends U ? X : Y
+// «اگر T قابل انتساب به U است، X؛ وگرنه Y»
+```
+
+```ts
+type IsString<T> = T extends string ? "yes" : "no";
+
+type A = IsString<"hello">; // "yes"
+type B = IsString<42>;      // "no"
+```
+
+`extends` اینجا هم مثل Constraint معنی «قابل انتساب به» دارد. این به‌تنهایی جالب نیست؛ قدرت واقعی وقتی است که با Generic و Union ترکیب شود.
+
+### رفتار توزیعی (Distributive) روی Union
+
+وقتی T یک **پارامتر نوع خالی** باشد (نه داخل یک Tuple یا Object) و به آن یک Union بدهید، Conditional Type روی **هر عضو جداگانه** اجرا می‌شود و نتیجه‌ها دوباره Union می‌شوند:
+
+```ts
+type Dist = IsString<string | number>;
+// = IsString<string> | IsString<number>
+// = "yes" | "no"
+```
+
+این دقیقاً همان چیزی است که `Exclude` را ممکن می‌کند:
+
+```ts
+type MyExclude<T, U> = T extends U ? never : T;
+
+type R = MyExclude<"a" | "b" | "c", "a">;
+// "a" extends "a" ? never : "a"  →  never
+// "b" extends "a" ? never : "b"  →  "b"
+// "c" extends "a" ? never : "c"  →  "c"
+// never | "b" | "c"  =  "b" | "c"   (never در یک Union ناپدید می‌شود)
+```
+
+اگر رفتار توزیعی را **نمی‌خواهید**، T را در یک Tuple بپیچید تا دیگر «پارامتر نوع خالی» نباشد:
+
+```ts
+type ToArray<T> = T extends unknown ? T[] : never;
+type X = ToArray<string | number>;   // string[] | number[]  (توزیعی)
+
+type ToArrayNoDist<T> = [T] extends [unknown] ? T[] : never;
+type Y = ToArrayNoDist<string | number>; // (string | number)[]  (یکجا)
+```
+
+<Callout type="note">
+یک نتیجه عجیب ولی منطقی: `IsString<never>` برابر `never` است، نه `"no"`. `never` یک Union **خالی** است و توزیع روی صفر عضو، صفر نتیجه می‌دهد. اگر لازم است `never` را تشخیص دهید، بنویسید `[T] extends [never] ? ... : ...`.
+</Callout>
+
+### `infer`: بیرون کشیدن یک Type از داخل Type دیگر
+
+داخل شاخه `extends` می‌توانید با `infer X` بگویید: «این قسمت را نمی‌دانم؛ هر چه بود اسمش را X بگذار». یعنی Pattern Matching روی Typeها:
+
+```ts
+type ElementType<T> = T extends (infer U)[] ? U : T;
+type E1 = ElementType<string[]>; // string  (الگو جور شد، U = string)
+type E2 = ElementType<number>;   // number  (جور نشد، خود T)
+
+type MyReturnType<T> = T extends (...args: any[]) => infer R ? R : never;
+type R1 = MyReturnType<() => boolean>; // boolean
+
+type UnwrapPromise<T> = T extends Promise<infer V> ? V : T;
+type P1 = UnwrapPromise<Promise<string>>; // string
+```
+
+`ReturnType`، `Parameters` و `Awaited` داخلی دقیقاً همین‌طور ساخته شده‌اند. `infer` فقط داخل شاخه `extends` یک Conditional Type مجاز است.
+
+## Template Literal Type: رشته‌سازی در سطح Type
+
+همان Template Literal معروف JavaScript (`` `Hello ${name}` ``) در دنیای Type هم هست، ولی به‌جای مقدار، با Typeها رشته می‌سازد:
+
+```ts
+type Size = "sm" | "lg";
+type Color = "red" | "blue";
+
+type ButtonClass = `${Size}-${Color}`;
+// "sm-red" | "sm-blue" | "lg-red" | "lg-blue"  (همه ترکیب‌ها)
+
+const c: ButtonClass = "md-red";
+// ❌ Type '"md-red"' is not assignable to type '"lg-blue" | "lg-red" | "sm-blue" | "sm-red"'. Did you mean '"sm-red"'?
+```
+
+چهار Type داخلی هم برای تغییر حروف رشته‌ها هست: `Uppercase<S>`، `Lowercase<S>`، `Capitalize<S>` (حرف اول بزرگ) و `Uncapitalize<S>` (حرف اول کوچک).
+
+```ts
+type EventName = `on${Capitalize<"click" | "focus">}`; // "onClick" | "onFocus"
+
+type Px = `${number}px`;
+const w1: Px = "10px"; // ✓
+const w2: Px = "abc";  // ❌ Type '"abc"' is not assignable to type '`${number}px`'.
+```
+
+## Typeهای بازگشتی (Recursive)
+
+یک Type می‌تواند به خودش اشاره کند. این برای ساختارهای درختی و تودرتو لازم است:
+
+```ts
+type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | Json[]
+  | { [key: string]: Json };
+
+const data: Json = { users: [{ name: "Ali", tags: ["a"] }] }; // ✓
+
+// Partial عمیق: Partial معمولی فقط سطح اول را اختیاری می‌کند
+type DeepPartial<T> = {
+  [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K];
+};
+```
+
+## Branded Type: دو `number` که نباید با هم قاطی شوند
+
+TypeScript **ساختاری** است: هر دو `number` برایش یکی‌اند. پس این باگ دیده نمی‌شود:
+
+```ts
+function getOrder(orderId: number) { /* ... */ }
+const userId = 5;
+getOrder(userId); // 🐞 شناسه کاربر به‌جای شناسه سفارش؛ بدون خطا
+```
+
+یک **Branded Type** یک «برچسب» ساختگی به Type اضافه می‌کند که فقط در زمان کامپایل وجود دارد:
+
+```ts
+type UserId  = number & { readonly __brand: "UserId" };
+type OrderId = number & { readonly __brand: "OrderId" };
+
+function getOrder2(id: OrderId) { /* ... */ }
+
+const uid = 5 as UserId;    // تنها جایی که as لازم است: لحظه ساختن
+getOrder2(uid);             // ❌ Argument of type 'UserId' is not assignable to parameter of type 'OrderId'.
+getOrder2(5);               // ❌ یک number ساده هم پذیرفته نمی‌شود
+```
+
+در زمان اجرا `uid` همان عدد `5` است. معمولاً یک تابع سازنده (`toOrderId(n)`) می‌نویسند که اعتبارسنجی کند و تنها جای `as` باشد.
+
+## اشتباهات رایج
+
+- نوشتن Typeهای کپی به‌جای مشتق کردن با `Pick`، `Omit`، `Partial` و `typeof`.
+- اعتماد به `Omit` برای کلید اشتباه (خطا نمی‌دهد).
+- اشتباه گرفتن `Omit` (کلیدهای Object) با `Exclude` (اعضای Union).
+- `ReturnType<fn>` به‌جای `ReturnType<typeof fn>`.
+- فراموش کردن اینکه `Partial` و `Readonly` سطحی‌اند.
+- غافلگیر شدن با رفتار توزیعی Conditional Type روی Union و نتیجه `never`.
+- ساختن Typeهای آن‌قدر پیچیده که پیام خطایشان قابل فهم نیست؛ Type ساده و خوانا را ترجیح دهید.
+
+## سوالات مصاحبه
+
+<QA q="`Partial`، `Pick` و `Omit` چه می‌کنند؟ یکی را خودتان پیاده‌سازی کنید." level="mid" n={1}>
+<Answer>
+
+`Partial<T>` همه Propertyها را اختیاری می‌کند، `Pick<T, K>` فقط کلیدهای K را نگه می‌دارد و `Omit<T, K>` همه به جز K را. پیاده‌سازی با Mapped Type:
+
+```ts
+type MyPartial<T> = { [K in keyof T]?: T[K] };
+type MyPick<T, K extends keyof T> = { [P in K]: T[P] };
+type MyOmit<T, K extends keyof any> = Pick<T, Exclude<keyof T, K>>;
+```
+
+</Answer>
+<Deep>
+
+`Omit` با `Exclude` روی `keyof T` ساخته شده، و چون K محدود به `keyof any` است، کلید اشتباه خطا نمی‌دهد. بعضی تیم‌ها یک `StrictOmit<T, K extends keyof T>` تعریف می‌کنند.
+
+</Deep>
+</QA>
+
+<QA q="Conditional Type توزیعی یعنی چه؟" level="senior" n={2}>
+<Answer>
+
+وقتی Type بررسی‌شده در `T extends U ? X : Y` یک پارامتر نوع خالی باشد و یک Union دریافت کند، شرط روی هر عضو Union جداگانه اجرا می‌شود و نتیجه‌ها Union می‌شوند. `Exclude<T, U> = T extends U ? never : T` به همین دلیل کار می‌کند: اعضایی که `never` می‌شوند از Union حذف می‌شوند.
+
+</Answer>
+<Deep>
+
+برای جلوگیری از توزیع، دو طرف را در Tuple بپیچید: `[T] extends [U]`. یک پیامد: با `T = never` (Union خالی) نتیجه `never` است، که برای تشخیص `never` باید `[T] extends [never]` نوشت.
+
+</Deep>
+</QA>
+
+<QA q="`infer` چیست؟ با آن `ReturnType` را بنویسید." level="senior" n={3}>
+<Answer>
+
+`infer` داخل شاخه `extends` یک Conditional Type یک متغیر Type تعریف می‌کند که TypeScript با Pattern Matching پر می‌کند:
+
+```ts
+type MyReturnType<T> = T extends (...args: any[]) => infer R ? R : never;
+```
+
+اگر T یک تابع باشد، R نوع خروجی آن می‌شود؛ وگرنه `never`.
+
+</Answer>
+</QA>
+
+<QA q="یک Union از Literalها را چطور از یک آرایه ثابت بسازیم تا هر دو همگام بمانند؟" level="mid" n={4}>
+<Answer>
+
+```ts
+const ROLES = ["admin", "editor", "viewer"] as const;
+type Role = (typeof ROLES)[number];
+```
+
+`as const` آرایه را Readonly و اعضایش را Literal می‌کند، `typeof` از مقدار Type می‌گیرد و `[number]` Union اعضا را می‌دهد. حالا هم یک آرایه زمان اجرا داریم (برای `<select>` یا اعتبارسنجی) و هم یک Type، و فقط یک جا باید ویرایش شوند.
+
+</Answer>
+</QA>
+
+<QA q="Branded Type چیست و چه مشکلی را حل می‌کند؟" level="senior" n={5}>
+<Answer>
+
+چون سیستم Type ساختاری است، دو Type با شکل یکسان (مثلاً دو `number` برای UserId و OrderId) قابل جابه‌جایی‌اند. Branded Type با Intersection یک Property ساختگی (`number & { __brand: "OrderId" }`) آن‌ها را از هم جدا می‌کند، بدون هیچ هزینه‌ای در زمان اجرا. مقدارها فقط از طریق یک تابع سازنده (که اعتبارسنجی هم می‌کند) ساخته می‌شوند.
+
+</Answer>
+</QA>
+
+## جمع‌بندی
+
+<Recap>
+
+- Typeها را از Typeهای موجود مشتق کنید تا یک منبع حقیقت داشته باشید و با تغییرات همگام بمانند.
+- `keyof T` Union کلیدهاست، `typeof x` در جایگاه Type، Type یک مقدار را می‌دهد و `T[K]` Type یک Property را.
+- `(typeof ARR)[number]` همراه با `as const` یک Union را از یک آرایه واقعی می‌سازد.
+- `Partial`، `Required`، `Readonly`، `Pick`، `Omit` و `Record` روی Objectها کار می‌کنند؛ `Exclude`، `Extract` و `NonNullable` روی Unionها.
+- `ReturnType`، `Parameters`، `Awaited` و `InstanceType` Type را از تابع، Promise و کلاس بیرون می‌کشند (با `typeof fn`).
+- `Omit` کلید اشتباه را خطا نمی‌گیرد و `Partial` و `Readonly` سطحی‌اند.
+- Mapped Type (`[K in keyof T]`) یک حلقه روی کلیدهاست؛ با `-?` و `-readonly` Modifier حذف می‌کند و با `as` کلید را تغییر نام یا فیلتر می‌کند.
+- Conditional Type (`T extends U ? X : Y`) روی Unionها توزیعی است؛ با `[T]` جلویش را بگیرید.
+- `infer` با Pattern Matching بخشی از یک Type را استخراج می‌کند.
+- Template Literal Type رشته‌ها را در سطح Type می‌سازد و Branded Type دو Type هم‌شکل را از هم جدا می‌کند.
+
+</Recap>
