@@ -1,0 +1,403 @@
+## Why store data in the browser?
+
+HTTP is **stateless**: every request starts from zero, and when the user closes a tab, everything in JavaScript memory is gone. Yet a site needs to remember things: who is logged in, the theme the user picked, a half-written form, a cart, data for offline use. The browser offers several storage mechanisms for this, and they differ a lot in size, speed, lifetime, and who can read them.
+
+<Callout type="note">
+The live previews in this handbook run in a sandbox with no origin of their own, so storage APIs are blocked there. The examples in this chapter are plain code: paste them into the DevTools console (F12 → Console) on any normal page to try them.
+</Callout>
+
+## The options at a glance
+
+| | Cookies | `localStorage` | `sessionStorage` | IndexedDB | Cache API |
+| --- | --- | --- | --- | --- | --- |
+| Size | ~4 KB per cookie | ~5 MB per origin | ~5 MB per origin, per tab | Large (a share of free disk) | Large (same quota as IndexedDB) |
+| Data type | Strings | Strings | Strings | Almost any JS value, files, blobs | HTTP `Request` → `Response` pairs |
+| API | `document.cookie` (sync) / `Set-Cookie` header | Synchronous | Synchronous | Asynchronous, transactional | Asynchronous (Promises) |
+| Sent to the server | **With every matching request** | No | No | No | No |
+| Lifetime | Until `Expires`/`Max-Age`, or end of session | Until deleted | Until the tab closes | Until deleted | Until deleted |
+| In Web/Service Workers | No (`cookieStore` in service workers) | No | No | Yes | Yes |
+| Typical use | Sessions and auth, server-read preferences | Small settings, UI state | Per-tab state (a wizard step) | App data, offline data, large datasets | Offline assets and responses |
+
+## Origins: who can read what
+
+All of these stores are separated by **origin**. An origin is the combination of **scheme + host + port**:
+
+| URL | Same origin as `https://shop.com`? | Why |
+| --- | --- | --- |
+| `https://shop.com/cart` | Yes | Only the path differs |
+| `http://shop.com` | No | Different scheme |
+| `https://api.shop.com` | No | Different host |
+| `https://shop.com:8443` | No | Different port |
+
+So `https://shop.com` can never read the `localStorage` of `https://api.shop.com`. Cookies are the exception: they are scoped by **domain and path** rather than strict origin (see below).
+
+Modern browsers also **partition** storage for third-party content: an `<iframe>` from `widget.com` embedded on `a.com` gets different storage than the same iframe on `b.com`. This stops embedded content from tracking you across sites.
+
+## Web Storage: localStorage and sessionStorage
+
+**`localStorage`** and **`sessionStorage`** share the same API (the **Web Storage** API). Both are simple key–value stores of **strings**.
+
+- `localStorage` persists until it is deleted by code, by the user, or by the browser (Safari deletes script-written storage after 7 days without a visit).
+- `sessionStorage` lives as long as the **tab** does. It survives reloads, but each tab has its own copy: two tabs of the same site don't share it. A new tab starts empty (duplicating a tab copies it).
+
+<Api name="Storage (localStorage / sessionStorage)" sig="setItem(key, value) · getItem(key) · removeItem(key) · clear() · key(index) · length" returns="`getItem` returns the string, or **`null`** if the key doesn't exist; `key(index)` returns the key name at that position or `null`; `length` is the number of keys; the others return `undefined`." mutates="yes (setItem, removeItem, clear)">
+
+- `key` (string): the name. Non-strings are converted to strings.
+- `value`: **converted to a string** with `String(value)`. Objects become `"[object Object]"`.
+- `setItem` throws a `QuotaExceededError` (a `DOMException`) when the origin's quota is full.
+- `key(index)`: the order of keys is not guaranteed to be meaningful; use it only to loop over all keys.
+
+</Api>
+
+```js
+localStorage.setItem("theme", "dark");
+localStorage.getItem("theme");          // "dark"
+localStorage.getItem("missing");        // null, not undefined
+
+localStorage.setItem("count", 5);
+typeof localStorage.getItem("count");   // "string": "5"
+
+localStorage.setItem("user", { name: "Ada" });
+localStorage.getItem("user");           // "[object Object]": the data is lost
+
+localStorage.setItem("seen", false);
+if (localStorage.getItem("seen")) {}    // runs! "false" is a non-empty string, so truthy
+
+localStorage.removeItem("theme");
+localStorage.length;                    // number of keys left
+```
+
+### Storing objects: JSON
+
+To store anything other than a string, convert it with `JSON.stringify` and back with `JSON.parse`. Wrap the read in `try/catch`, because the stored text may be missing, corrupted, or written by an older version of your app:
+
+```js
+function save(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+    return true;
+  } catch (err) {
+    // QuotaExceededError, or storage disabled by the user's privacy settings
+    console.warn("could not save", key, err.name);
+    return false;
+  }
+}
+
+function load(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw === null ? fallback : JSON.parse(raw);   // JSON.parse(null) would give null
+  } catch {
+    return fallback;                                    // corrupted JSON
+  }
+}
+
+save("cart", { items: [{ sku: "pen", qty: 2 }], updated: new Date() });
+load("cart", { items: [] }).updated;   // a string like "2026-10-10T08:00:00.000Z": Dates don't survive JSON
+```
+
+<Callout type="warning">
+JSON only keeps strings, numbers, booleans, `null`, arrays and plain objects. A `Date` comes back as a string, `undefined` and functions disappear, and a `Map` or `Set` becomes `{}`. If you need those types, use IndexedDB, which stores them as they are.
+</Callout>
+
+### The storage event: syncing tabs
+
+When one tab changes `localStorage`, the browser fires a **`storage`** event on `window` in **every other tab** of the same origin, but **not** in the tab that made the change. It's an easy way to sync a logout or a theme change across tabs.
+
+```js
+window.addEventListener("storage", (event) => {
+  // event.key       → the changed key ("theme"), or null after localStorage.clear()
+  // event.oldValue  → the previous string, or null if the key is new
+  // event.newValue  → the new string, or null if the key was removed
+  // event.url       → the page that made the change
+  // event.storageArea → localStorage (or sessionStorage, for frames in the same tab)
+  if (event.key === "token" && event.newValue === null) location.assign("/login");
+});
+```
+
+For richer messaging between tabs, use **`BroadcastChannel`**: `new BroadcastChannel("app").postMessage({ type: "logout" })`.
+
+### Limits of Web Storage
+
+- **Synchronous**: every read and write blocks the main thread, and the browser may read the whole store from disk at startup. Fine for a few small values, bad for megabytes of data.
+- **Strings only**, around 5 MB per origin.
+- **Not available in workers**, including service workers.
+- **Readable by any script on the page**: one XSS vulnerability exposes everything in it. Never put secrets there (more in [Browser security](/browser/security)).
+
+## Cookies
+
+A **cookie** is a small named string that the browser stores for a site and **automatically attaches to every HTTP request** to that site in the `Cookie` header. That's what makes cookies special: they're the one storage the **server** can read without any JavaScript. This is why sessions are built on them.
+
+Usually the server sets cookies with a response header:
+
+```http
+Set-Cookie: session=abc123; Max-Age=86400; Path=/; Secure; HttpOnly; SameSite=Lax
+```
+
+and the browser sends them back on later requests:
+
+```http
+Cookie: session=abc123; theme=dark
+```
+
+### Cookie attributes
+
+| Attribute | Meaning | Default when omitted |
+| --- | --- | --- |
+| `Expires=<date>` / `Max-Age=<seconds>` | When the cookie expires. `Max-Age` wins if both are set. `Max-Age=0` deletes it | A **session cookie**, deleted when the browser session ends |
+| `Domain=shop.com` | Also send to subdomains (`api.shop.com`) | Only the exact host that set it |
+| `Path=/app` | Only send for URLs under this path | The path of the URL that set it, up to the last `/` |
+| `Secure` | Only send over HTTPS | Sent over HTTP too (avoid) |
+| `HttpOnly` | **Invisible to JavaScript** (`document.cookie` can't read it) | Readable by JavaScript |
+| `SameSite=Strict` | Never sent on requests coming from other sites | — |
+| `SameSite=Lax` | Sent on top-level navigations from other sites (clicking a link), not on cross-site sub-requests (images, `fetch`, form `POST`) | Browsers treat a missing `SameSite` as `Lax` |
+| `SameSite=None` | Sent on all cross-site requests; **requires `Secure`** | — |
+| `Partitioned` | A third-party cookie stored separately per top-level site (CHIPS) | Not partitioned |
+
+The prefix `__Host-` (e.g. `__Host-session`) makes the browser reject the cookie unless it has `Secure`, `Path=/` and no `Domain`, so a subdomain can't overwrite it.
+
+### document.cookie
+
+JavaScript can read and write cookies that are **not** `HttpOnly` through `document.cookie`, an unusual property: reading returns **all** visible cookies as one string, while assigning sets or updates **one** cookie.
+
+```js
+document.cookie = "theme=dark; Max-Age=31536000; Path=/; SameSite=Lax";
+document.cookie = "lang=fa; Path=/";
+document.cookie;                      // "theme=dark; lang=fa": one string, attributes not included
+
+// read one cookie
+const getCookie = (name) =>
+  document.cookie.split("; ").find((c) => c.startsWith(name + "="))?.slice(name.length + 1);
+getCookie("theme");                   // "dark"
+
+// values with spaces or ; must be encoded
+document.cookie = "q=" + encodeURIComponent("a; b") + "; Path=/";
+
+// delete: same name, Path and Domain, with Max-Age=0
+document.cookie = "theme=; Max-Age=0; Path=/";
+```
+
+<Callout type="mistake">
+Deleting a cookie with a different `Path` or `Domain` than it was set with creates a **new** cookie instead of deleting the old one. Both then exist, and the old one keeps being sent.
+</Callout>
+
+Newer browsers also offer the asynchronous **Cookie Store API** (`await cookieStore.get("theme")`, `cookieStore.set(...)`, a `change` event), which is easier to use and also available in service workers.
+
+### Why cookies aren't general storage
+
+Every cookie for a domain travels with **every** request to it, including requests for images, scripts and API calls. Twenty cookies of 200 bytes add 4 KB to each request. Use cookies for what the server needs to read (the session); keep everything else in `localStorage` or IndexedDB.
+
+## IndexedDB
+
+**IndexedDB** is a real database built into the browser: asynchronous, transactional, able to store large amounts of structured data, and available in workers.
+
+Its vocabulary:
+
+- A **database** has a name and a **version** number. Each origin can have many databases.
+- An **object store** is like a table: it holds records, each identified by a **key**. The key can come from a property of the record (`keyPath: "id"`) or be generated (`autoIncrement: true`).
+- An **index** lets you look records up by another property (for example, find users by email).
+- Every read or write happens inside a **transaction**, which is either `"readonly"` or `"readwrite"`. If anything in a transaction fails, all of its changes are rolled back.
+- Values are copied with the **structured clone** algorithm: `Date`, `Map`, `Set`, `ArrayBuffer`, `Blob`, `File` and nested objects survive intact. Functions, DOM nodes and class instances' prototypes do not (an instance comes back as a plain object).
+
+### Opening a database and creating the schema
+
+```js
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open("shop", 1);    // name, version (a positive integer)
+
+    // runs only when the DB is new or the version number went up: the only place to change the schema
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      const products = db.createObjectStore("products", { keyPath: "id" });
+      products.createIndex("byCategory", "category");   // index name, property to index
+    };
+
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+    request.onblocked = () => reject(new Error("close the other tabs using an older version"));
+  });
+}
+```
+
+<Steps>
+<Step title="indexedDB.open(name, version)">
+Returns a **request** object right away, not the database. The result arrives later through events.
+</Step>
+<Step title="upgradeneeded">
+Fires if the database doesn't exist yet, or exists with a lower version. This is the only moment you can create or delete object stores and indexes. To change the schema later, bump the version and handle each old version here.
+</Step>
+<Step title="success or error">
+`success` gives you the open database in `request.result`. `blocked` fires if another tab still has an older version open and doesn't close it.
+</Step>
+</Steps>
+
+### Reading and writing in transactions
+
+The IndexedDB API is built on events, from before Promises existed. A small helper turns any request into a Promise:
+
+```js
+const done = (request) =>
+  new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+
+const db = await openDB();
+
+// write: one readwrite transaction for several operations
+const tx = db.transaction("products", "readwrite");
+const store = tx.objectStore("products");
+store.put({ id: 1, name: "Pen", category: "office", added: new Date() });  // put = insert or replace
+store.put({ id: 2, name: "Ink", category: "office", added: new Date() });
+store.put({ id: 3, name: "Mug", category: "kitchen", added: new Date() });
+await new Promise((resolve, reject) => {
+  tx.oncomplete = resolve;              // all writes are now on disk
+  tx.onerror = () => reject(tx.error);
+});
+
+// read
+const read = db.transaction("products").objectStore("products");   // readonly by default
+(await done(read.get(1))).added instanceof Date;                   // true: structured clone keeps Dates
+(await done(read.get(99)));                                         // undefined: not found
+(await done(read.index("byCategory").getAll("office"))).length;    // 2
+(await done(read.count()));                                         // 3
+```
+
+| Method | Does | Notes |
+| --- | --- | --- |
+| `store.add(value, key?)` | Inserts | **Fails** with `ConstraintError` if the key exists |
+| `store.put(value, key?)` | Inserts or replaces | The usual choice for saving |
+| `store.get(key)` | One record | `undefined` if not found |
+| `store.getAll(query?, count?)` | Many records | `query` can be a key or an `IDBKeyRange` such as `IDBKeyRange.bound(1, 10)` |
+| `store.delete(key)` / `store.clear()` | Removes one / all | |
+| `store.count(query?)` | Counts records | |
+| `store.openCursor(query?, direction?)` | Walks records one by one | For very large result sets |
+| `store.index(name)` | An index to query by another property | Has the same `get`, `getAll`, `count`, `openCursor` |
+
+<Callout type="mistake">
+A transaction **commits automatically** as soon as it has no pending requests and control returns to the event loop. If you `await` something unrelated in the middle (a `fetch`, a `setTimeout`), the transaction is already finished when you come back, and the next request throws `TransactionInactiveError`. Fetch your data **first**, then open the transaction and write.
+</Callout>
+
+In real projects, most people use a thin Promise wrapper such as the `idb` library (about 1 KB), or a higher-level one such as Dexie, instead of the raw events.
+
+## Cache API and the Origin Private File System
+
+The **Cache API** (`caches`) stores pairs of HTTP **requests and responses**. It's designed for **service workers**, which intercept the page's network requests and can answer from the cache, which is how offline-capable sites (PWAs) work. It's also available on normal pages.
+
+```js
+const cache = await caches.open("assets-v1");
+await cache.addAll(["/", "/app.js", "/styles.css"]);   // fetches and stores all three
+const res = await cache.match("/app.js");              // a Response, or undefined
+await caches.delete("assets-v0");                      // remove an old version
+```
+
+Don't confuse it with the **HTTP cache**, which the browser manages by itself from response headers like `Cache-Control` (see [HTTP, fetch and CORS](/browser/http-fetch)). The Cache API is fully under your control: nothing expires unless you delete it.
+
+The **Origin Private File System** (OPFS), from `navigator.storage.getDirectory()`, gives each origin a private, sandboxed file system with fast file access in workers. It's used, for example, to run SQLite in the browser with WebAssembly.
+
+## Quotas, eviction and persistence
+
+IndexedDB, the Cache API and OPFS share one **quota** per origin, typically a large share of the free disk space (the exact number differs by browser). You can ask how much you use:
+
+```js
+const { usage, quota } = await navigator.storage.estimate();
+console.log((usage / 1e6).toFixed(1) + " MB used of " + (quota / 1e9).toFixed(1) + " GB");
+
+await navigator.storage.persisted();   // false by default: "best-effort" storage
+await navigator.storage.persist();     // ask to make it persistent
+```
+
+By default storage is **best-effort**: when the disk is nearly full, the browser may delete the data of the least recently used origins, all at once. **Persistent** storage is only removed by the user. Browsers grant `persist()` automatically or by asking the user, depending on how much the user engages with the site. Either way, treat client-side storage as a **cache**: the server should hold anything that must not be lost.
+
+## Which one should I use?
+
+| You need to store… | Use |
+| --- | --- |
+| A session or auth token the server must read | An `HttpOnly; Secure; SameSite` cookie |
+| A small user preference (theme, language, collapsed sidebar) | `localStorage` |
+| State for this tab only (a multi-step form) | `sessionStorage` |
+| Lots of structured data, offline data, files, blobs | IndexedDB (through a wrapper) |
+| Responses and assets for offline use | Cache API + a service worker |
+| Large files with fast random access | OPFS |
+| Data shared only while the page is open | Plain JavaScript memory (a variable, a store) |
+
+## Common mistakes
+
+- Storing objects in `localStorage` without `JSON.stringify` (`"[object Object]"`), or treating `"false"` as false.
+- Calling `JSON.parse(localStorage.getItem(k))` without handling missing keys or corrupted data.
+- Putting auth tokens in `localStorage`, where any XSS can read them.
+- Writing large data to `localStorage` in a hot path: it's synchronous and blocks the main thread.
+- Expecting the `storage` event in the same tab that made the change.
+- Deleting a cookie without the same `Path`/`Domain`, or forgetting `Secure` with `SameSite=None`.
+- Awaiting unrelated work in the middle of an IndexedDB transaction.
+- Treating any browser storage as permanent: users clear it, private windows discard it, browsers evict it.
+
+## Interview questions
+
+<QA q="Compare cookies, localStorage and sessionStorage." level="junior" n={1}>
+<Answer>
+
+Cookies are small (~4 KB), can have an expiry, are sent to the server with every matching request, and can be made invisible to JavaScript with `HttpOnly`. `localStorage` holds about 5 MB of strings per origin, is never sent automatically, and lasts until deleted. `sessionStorage` has the same API and size but is scoped to one tab and cleared when the tab closes. Both Web Storage APIs are synchronous and readable by any script on the page.
+
+</Answer>
+<FollowUp>
+
+Which one would you use for an authentication token, and why?
+
+</FollowUp>
+</QA>
+
+<QA q="Where should you store a JWT or session token: localStorage or a cookie?" level="mid" n={2}>
+<Answer>
+
+Preferably in an `HttpOnly; Secure; SameSite=Lax` (or `Strict`) cookie. `HttpOnly` means injected scripts can't read it, so an XSS bug can't steal the token. The cookie approach needs CSRF protection: `SameSite` covers most cases, plus CSRF tokens or checking `Origin` for sensitive actions. `localStorage` is immune to CSRF (nothing is sent automatically) but fully exposed to XSS.
+
+</Answer>
+<Deep>
+
+`HttpOnly` doesn't make XSS harmless: injected code can still send requests **as the user** while the page is open. It only prevents stealing the token for use elsewhere. A common setup is a short-lived access token kept in memory plus a refresh token in an `HttpOnly` cookie.
+
+</Deep>
+</QA>
+
+<QA q="What does SameSite do, and what is the difference between Lax and Strict?" level="mid" n={3}>
+<Answer>
+
+`SameSite` controls whether a cookie is sent on requests initiated by another site, which is the main defense against CSRF. `Strict`: never sent cross-site, even when the user clicks a link to your site (they arrive logged out on that first request). `Lax` (the default): sent on top-level navigations such as following a link, but not on cross-site sub-requests or form `POST`s. `None`: always sent, and must be `Secure`; needed for legitimate third-party use such as embedded widgets.
+
+</Answer>
+</QA>
+
+<QA q="Why might you choose IndexedDB over localStorage?" level="mid" n={4}>
+<Answer>
+
+IndexedDB is asynchronous (doesn't block the main thread), stores structured values (Dates, Maps, Blobs, files) without JSON, has a far larger quota, supports indexes and range queries, has transactions, and works in web workers and service workers. `localStorage` is only for small string data.
+
+</Answer>
+</QA>
+
+<QA q="How would you sync a logout across all open tabs?" level="mid" n={5}>
+<Answer>
+
+On logout, remove a key from `localStorage` (or post a message on a `BroadcastChannel`). Other tabs listen to the `storage` event (or the channel's `message` event) and redirect to the login page. The tab that performed the logout handles its own redirect, since it doesn't receive its own `storage` event. The server must also invalidate the session; client-side signals are only for the UI.
+
+</Answer>
+</QA>
+
+## Recap
+
+<Recap>
+
+- All browser storage is separated by origin (scheme + host + port); cookies are scoped by domain and path instead.
+- `localStorage` persists, `sessionStorage` lives per tab; both are synchronous, about 5 MB, strings only.
+- Use `JSON.stringify`/`JSON.parse` with `try/catch`; `getItem` returns `null` for missing keys; Dates and Maps don't survive JSON.
+- The `storage` event fires in **other** tabs only; `BroadcastChannel` is the general cross-tab messenger.
+- Cookies travel with every matching request; use `HttpOnly`, `Secure` and `SameSite` for session cookies.
+- `document.cookie` reads all non-HttpOnly cookies as one string and writes one at a time; deleting needs the same `Path`/`Domain` and `Max-Age=0`.
+- IndexedDB is an asynchronous, transactional database for large, structured data, available in workers.
+- IndexedDB transactions auto-commit; don't await unrelated work inside one.
+- The Cache API stores request/response pairs for service workers and offline use.
+- Storage is best-effort by default; `navigator.storage.persist()` asks for persistence, but the server stays the source of truth.
+
+</Recap>

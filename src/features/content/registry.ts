@@ -365,6 +365,22 @@ const descriptions: Record<string, Localized> = {
     fa: 'Props و children، useState و useRef، Type رویدادها، useReducer و Context، ComponentProps، Component جنریک و ref در React 19.',
     en: 'Props and children, useState and useRef, event types, useReducer and context, ComponentProps, generic components and ref in React 19.',
   },
+  'browser/dom': {
+    fa: 'Node و سلسله‌مراتب کلاس‌ها، querySelector و مجموعه‌های زنده، textContent در برابر innerHTML، ساختن و جابه‌جایی Element، Layout Thrashing، اندازه‌گیری و Observerها.',
+    en: 'Nodes and the class hierarchy, querySelector and live collections, textContent vs innerHTML, creating and moving elements, layout thrashing, measuring and observers.',
+  },
+  'browser/events': {
+    fa: 'addEventListener و Optionهایش، Event Object، فازهای Capture و Bubble، stopPropagation و preventDefault، Event Delegation، CustomEvent و ترتیب Microtaskها.',
+    en: 'addEventListener and its options, the event object, capture and bubble phases, stopPropagation and preventDefault, delegation, CustomEvent and microtask ordering.',
+  },
+  'browser/rendering-pipeline': {
+    fa: 'از URL تا پیکسل: Navigation، Processها و Threadها، Parse، Style، Layout، Paint، لایه‌ها، Raster و Composite، زندگی یک Frame و Long Taskها.',
+    en: 'From URL to pixels: navigation, processes and threads, parsing, style, layout, paint, layers, raster and composite, the life of a frame and long tasks.',
+  },
+  'browser/storage': {
+    fa: 'Origin و پارتیشن‌بندی، localStorage و sessionStorage، Event storage، Cookie و Attributeهایش، IndexedDB و Transactionها، Cache API، سهمیه و انتخاب انبار درست.',
+    en: 'Origins and partitioning, localStorage and sessionStorage, the storage event, cookies and their attributes, IndexedDB and transactions, the Cache API, quotas and choosing a store.',
+  },
 }
 
 for (const part of parts) {

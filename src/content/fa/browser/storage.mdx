@@ -1,0 +1,403 @@
+## چرا داده را در مرورگر ذخیره کنیم؟
+
+HTTP **بدون حالت** (Stateless) است: هر درخواست از صفر شروع می‌شود و وقتی کاربر تب را می‌بندد، هر چیزی که در حافظه‌ی JavaScript بود از بین می‌رود. اما سایت باید چیزهایی را به خاطر بسپارد: چه کسی وارد شده، کاربر چه تمی انتخاب کرده، فرمی که نصفه پر شده، سبد خرید، داده برای حالت آفلاین. مرورگر برای این کار چند سازوکار ذخیره‌سازی دارد که در اندازه، سرعت، طول عمر و اینکه چه کسی می‌تواند بخواندشان خیلی با هم فرق دارند.
+
+<Callout type="note">
+پیش‌نمایش‌های زنده‌ی این کتاب در یک Sandbox بدون Origin اجرا می‌شوند، برای همین APIهای ذخیره‌سازی آنجا مسدودند. مثال‌های این فصل کد ساده هستند: آن‌ها را در Console مربوط به DevTools (کلید F12 → Console) روی هر صفحه‌ی معمولی اجرا کنید.
+</Callout>
+
+## همه‌ی گزینه‌ها در یک نگاه
+
+| | Cookie | `localStorage` | `sessionStorage` | IndexedDB | Cache API |
+| --- | --- | --- | --- | --- | --- |
+| اندازه | حدود ۴ کیلوبایت برای هر Cookie | حدود ۵ مگابایت برای هر Origin | حدود ۵ مگابایت برای هر Origin، در هر تب | زیاد (سهمی از فضای خالی دیسک) | زیاد (همان سهمیه‌ی IndexedDB) |
+| نوع داده | رشته | رشته | رشته | تقریباً هر مقدار JS، فایل و Blob | جفت‌های `Request` → `Response` در HTTP |
+| API | `document.cookie` (همگام) / Header `Set-Cookie` | همگام | همگام | ناهمگام و تراکنشی | ناهمگام (Promise) |
+| ارسال به سرور | **همراه هر درخواست منطبق** | نه | نه | نه | نه |
+| طول عمر | تا `Expires`/`Max-Age` یا پایان Session | تا وقتی پاک شود | تا بسته شدن تب | تا وقتی پاک شود | تا وقتی پاک شود |
+| در Web/Service Worker | نه (`cookieStore` در Service Worker) | نه | نه | بله | بله |
+| کاربرد رایج | Session و احراز هویت، تنظیماتی که سرور می‌خواند | تنظیمات کوچک و State رابط کاربری | State مخصوص یک تب (مرحله‌ی یک فرم چندمرحله‌ای) | داده‌ی برنامه، داده‌ی آفلاین، داده‌های حجیم | فایل‌ها و پاسخ‌های آفلاین |
+
+## Origin: چه کسی چه چیزی را می‌خواند
+
+همه‌ی این انبارها بر اساس **Origin** از هم جدا می‌شوند. Origin یعنی ترکیب **Scheme + Host + Port**:
+
+| URL | هم‌Origin با `https://shop.com`؟ | چرا |
+| --- | --- | --- |
+| `https://shop.com/cart` | بله | فقط مسیر فرق دارد |
+| `http://shop.com` | نه | Scheme فرق دارد |
+| `https://api.shop.com` | نه | Host فرق دارد |
+| `https://shop.com:8443` | نه | Port فرق دارد |
+
+پس `https://shop.com` هیچ‌وقت نمی‌تواند `localStorage` مربوط به `https://api.shop.com` را بخواند. Cookieها استثنا هستند: به‌جای Origin دقیق، بر اساس **Domain و Path** محدود می‌شوند (پایین‌تر می‌بینیم).
+
+مرورگرهای امروزی ذخیره‌سازی محتوای Third-party را هم **پارتیشن‌بندی** می‌کنند: یک `<iframe>` از `widget.com` که داخل `a.com` قرار گرفته، انباری متفاوت با همان iframe داخل `b.com` دارد. این کار جلوی ردیابی شما بین سایت‌ها توسط محتوای جاسازی‌شده را می‌گیرد.
+
+## Web Storage: یعنی localStorage و sessionStorage
+
+**`localStorage`** و **`sessionStorage`** یک API مشترک دارند (**Web Storage** API). هر دو یک انبار ساده‌ی کلید–مقدار از **رشته‌ها** هستند.
+
+- `localStorage` تا وقتی کد، کاربر یا خود مرورگر پاکش نکند می‌ماند (Safari انباری را که اسکریپت نوشته بعد از ۷ روز بدون بازدید پاک می‌کند).
+- `sessionStorage` تا وقتی **تب** باز است زنده است. با Reload از بین نمی‌رود، اما هر تب نسخه‌ی خودش را دارد: دو تب از یک سایت آن را با هم شریک نیستند. تب جدید خالی شروع می‌شود (Duplicate کردن تب از آن کپی می‌گیرد).
+
+<Api name="Storage (localStorage / sessionStorage)" sig="setItem(key, value) · getItem(key) · removeItem(key) · clear() · key(index) · length" returns="`getItem` رشته را برمی‌گرداند، یا اگر کلید وجود نداشته باشد **`null`**؛ `key(index)` اسم کلید در آن جایگاه یا `null`؛ `length` تعداد کلیدهاست؛ بقیه `undefined` برمی‌گردانند." mutates="yes (setItem, removeItem, clear)">
+
+- `key` (رشته): اسم کلید. مقدارهای غیررشته‌ای به رشته تبدیل می‌شوند.
+- `value`: با `String(value)` **به رشته تبدیل می‌شود**. Objectها می‌شوند `"[object Object]"`.
+- وقتی سهمیه‌ی Origin پر شود، `setItem` یک `QuotaExceededError` (از نوع `DOMException`) پرتاب می‌کند.
+- `key(index)`: ترتیب کلیدها معنای مشخصی ندارد؛ فقط برای پیمایش همه‌ی کلیدها از آن استفاده کنید.
+
+</Api>
+
+```js
+localStorage.setItem("theme", "dark");
+localStorage.getItem("theme");          // "dark"
+localStorage.getItem("missing");        // null، نه undefined
+
+localStorage.setItem("count", 5);
+typeof localStorage.getItem("count");   // "string": یعنی "5"
+
+localStorage.setItem("user", { name: "Ada" });
+localStorage.getItem("user");           // "[object Object]": داده از دست رفت
+
+localStorage.setItem("seen", false);
+if (localStorage.getItem("seen")) {}    // اجرا می‌شود! "false" رشته‌ی غیرخالی است، پس truthy
+
+localStorage.removeItem("theme");
+localStorage.length;                    // تعداد کلیدهای باقی‌مانده
+```
+
+### ذخیره‌ی Object: با JSON
+
+برای ذخیره‌ی هر چیزی غیر از رشته، با `JSON.stringify` تبدیلش کنید و با `JSON.parse` برگردانید. خواندن را داخل `try/catch` بگذارید، چون متن ذخیره‌شده ممکن است وجود نداشته باشد، خراب شده باشد یا نسخه‌ی قدیمی‌تری از برنامه‌تان نوشته باشدش:
+
+```js
+function save(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+    return true;
+  } catch (err) {
+    // QuotaExceededError، یا ذخیره‌سازی که تنظیمات حریم خصوصی کاربر غیرفعالش کرده
+    console.warn("could not save", key, err.name);
+    return false;
+  }
+}
+
+function load(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw === null ? fallback : JSON.parse(raw);   // JSON.parse(null) نتیجه‌اش null می‌شد
+  } catch {
+    return fallback;                                    // JSON خراب
+  }
+}
+
+save("cart", { items: [{ sku: "pen", qty: 2 }], updated: new Date() });
+load("cart", { items: [] }).updated;   // رشته‌ای مثل "2026-10-10T08:00:00.000Z": Date از JSON سالم بیرون نمی‌آید
+```
+
+<Callout type="warning">
+JSON فقط رشته، عدد، boolean، `null`، آرایه و Object ساده را نگه می‌دارد. `Date` به شکل رشته برمی‌گردد، `undefined` و تابع‌ها حذف می‌شوند و `Map` یا `Set` تبدیل به `{}` می‌شود. اگر این نوع‌ها را لازم دارید از IndexedDB استفاده کنید که آن‌ها را همان‌طور که هستند ذخیره می‌کند.
+</Callout>
+
+### Event storage: هماهنگ کردن تب‌ها
+
+وقتی یک تب `localStorage` را تغییر می‌دهد، مرورگر یک Event به اسم **`storage`** را روی `window` در **همه‌ی تب‌های دیگرِ** همان Origin اجرا می‌کند، اما **نه** در تبی که تغییر را داده. راه ساده‌ای است برای هماهنگ کردن خروج از حساب یا تغییر تم بین تب‌ها.
+
+```js
+window.addEventListener("storage", (event) => {
+  // event.key       → کلید تغییرکرده ("theme")، یا بعد از localStorage.clear() برابر null
+  // event.oldValue  → رشته‌ی قبلی، یا اگر کلید تازه باشد null
+  // event.newValue  → رشته‌ی جدید، یا اگر کلید حذف شده باشد null
+  // event.url       → صفحه‌ای که تغییر را داده
+  // event.storageArea → localStorage (یا برای Frameهای همان تب، sessionStorage)
+  if (event.key === "token" && event.newValue === null) location.assign("/login");
+});
+```
+
+برای پیام‌رسانی کامل‌تر بین تب‌ها از **`BroadcastChannel`** استفاده کنید: `new BroadcastChannel("app").postMessage({ type: "logout" })`.
+
+### محدودیت‌های Web Storage
+
+- **همگام** است: هر خواندن و نوشتن Main Thread را معطل می‌کند و مرورگر ممکن است کل انبار را موقع شروع از دیسک بخواند. برای چند مقدار کوچک خوب است، برای چند مگابایت داده بد.
+- **فقط رشته**، حدود ۵ مگابایت برای هر Origin.
+- **در Workerها در دسترس نیست**، از جمله Service Worker.
+- **هر اسکریپتی در صفحه می‌تواند بخواندش**: یک آسیب‌پذیری XSS کافی است تا همه‌ی محتوایش لو برود. هیچ‌وقت راز (Secret) در آن نگذارید (بیشتر در [امنیت مرورگر](/browser/security)).
+
+## Cookie
+
+**Cookie** یک رشته‌ی کوچک اسم‌دار است که مرورگر برای یک سایت نگه می‌دارد و **به‌طور خودکار به هر درخواست HTTP** به آن سایت، در Header `Cookie`، ضمیمه می‌کند. خاص بودن Cookie همین است: تنها انباری است که **سرور** بدون هیچ JavaScriptی می‌تواند بخواندش. برای همین Sessionها روی Cookie ساخته می‌شوند.
+
+معمولاً سرور Cookie را با یک Header در پاسخ ست می‌کند:
+
+```http
+Set-Cookie: session=abc123; Max-Age=86400; Path=/; Secure; HttpOnly; SameSite=Lax
+```
+
+و مرورگر در درخواست‌های بعدی آن را برمی‌گرداند:
+
+```http
+Cookie: session=abc123; theme=dark
+```
+
+### Attributeهای Cookie
+
+| Attribute | معنی | اگر نگذارید |
+| --- | --- | --- |
+| `Expires=<date>` / `Max-Age=<seconds>` | زمان انقضا. اگر هر دو باشند `Max-Age` برنده است. `Max-Age=0` آن را حذف می‌کند | یک **Session Cookie** که با پایان Session مرورگر حذف می‌شود |
+| `Domain=shop.com` | به زیردامنه‌ها (`api.shop.com`) هم فرستاده شود | فقط همان Hostی که ستش کرده |
+| `Path=/app` | فقط برای URLهای زیر این مسیر فرستاده شود | مسیر URLی که ستش کرده، تا آخرین `/` |
+| `Secure` | فقط روی HTTPS فرستاده شود | روی HTTP هم فرستاده می‌شود (نکنید) |
+| `HttpOnly` | **برای JavaScript نامرئی است** (`document.cookie` نمی‌تواند بخواندش) | JavaScript می‌تواند بخواند |
+| `SameSite=Strict` | هیچ‌وقت روی درخواست‌هایی که از سایت دیگری می‌آیند فرستاده نمی‌شود | — |
+| `SameSite=Lax` | روی Navigationهای سطح بالا از سایت دیگر (کلیک روی لینک) فرستاده می‌شود، اما روی درخواست‌های فرعی Cross-site (تصویر، `fetch`، `POST` فرم) نه | مرورگرها نبودن `SameSite` را `Lax` حساب می‌کنند |
+| `SameSite=None` | روی همه‌ی درخواست‌های Cross-site فرستاده می‌شود؛ **`Secure` لازم دارد** | — |
+| `Partitioned` | Cookie Third-partyی که برای هر سایت سطح بالا جدا ذخیره می‌شود (CHIPS) | پارتیشن‌بندی نمی‌شود |
+
+پیشوند `__Host-` (مثلاً `__Host-session`) باعث می‌شود مرورگر Cookie را فقط وقتی قبول کند که `Secure` و `Path=/` داشته باشد و `Domain` نداشته باشد؛ پس هیچ زیردامنه‌ای نمی‌تواند رویش بنویسد.
+
+### document.cookie
+
+JavaScript می‌تواند Cookieهایی را که `HttpOnly` **نیستند** از طریق `document.cookie` بخواند و بنویسد. این Property عجیبی است: خواندنش **همه‌ی** Cookieهای قابل‌دیدن را در یک رشته برمی‌گرداند، اما مقداردهی به آن فقط **یک** Cookie را ست یا به‌روز می‌کند.
+
+```js
+document.cookie = "theme=dark; Max-Age=31536000; Path=/; SameSite=Lax";
+document.cookie = "lang=fa; Path=/";
+document.cookie;                      // "theme=dark; lang=fa": یک رشته، بدون Attributeها
+
+// خواندن یک Cookie
+const getCookie = (name) =>
+  document.cookie.split("; ").find((c) => c.startsWith(name + "="))?.slice(name.length + 1);
+getCookie("theme");                   // "dark"
+
+// مقدارهایی که فاصله یا ; دارند باید Encode شوند
+document.cookie = "q=" + encodeURIComponent("a; b") + "; Path=/";
+
+// حذف: همان اسم، Path و Domain، با Max-Age=0
+document.cookie = "theme=; Max-Age=0; Path=/";
+```
+
+<Callout type="mistake">
+حذف یک Cookie با `Path` یا `Domain`ی متفاوت از زمانی که ست شده، به‌جای حذف Cookie قبلی، یک Cookie **جدید** می‌سازد. آن‌وقت هر دو وجود دارند و قبلی همچنان فرستاده می‌شود.
+</Callout>
+
+مرورگرهای جدیدتر **Cookie Store API** ناهمگام را هم دارند (`await cookieStore.get("theme")`، `cookieStore.set(...)` و یک Event به اسم `change`) که استفاده‌اش راحت‌تر است و در Service Worker هم در دسترس است.
+
+### چرا Cookie انبار همه‌منظوره نیست
+
+همه‌ی Cookieهای یک دامنه همراه **هر** درخواست به آن فرستاده می‌شوند؛ حتی درخواست تصویرها، اسکریپت‌ها و APIها. بیست Cookie دویست‌بایتی به هر درخواست ۴ کیلوبایت اضافه می‌کنند. Cookie را برای چیزی نگه دارید که سرور باید بخواند (Session)؛ بقیه را در `localStorage` یا IndexedDB بگذارید.
+
+## IndexedDB
+
+**IndexedDB** یک پایگاه داده‌ی واقعی داخل مرورگر است: ناهمگام، تراکنشی، توانا در ذخیره‌ی حجم زیادی داده‌ی ساختاریافته و در دسترس در Workerها.
+
+واژه‌هایش:
+
+- هر **Database** یک اسم و یک شماره‌ی **Version** دارد. هر Origin می‌تواند چند Database داشته باشد.
+- **Object Store** شبیه یک جدول است: رکوردهایی نگه می‌دارد که هر کدام با یک **Key** شناخته می‌شوند. Key می‌تواند از یک Property خود رکورد بیاید (`keyPath: "id"`) یا خودکار ساخته شود (`autoIncrement: true`).
+- **Index** اجازه می‌دهد رکوردها را بر اساس یک Property دیگر پیدا کنید (مثلاً کاربر را با ایمیلش).
+- هر خواندن یا نوشتن داخل یک **Transaction** انجام می‌شود که یا `"readonly"` است یا `"readwrite"`. اگر هر چیزی در یک Transaction شکست بخورد، همه‌ی تغییراتش برگردانده می‌شوند.
+- مقدارها با الگوریتم **Structured Clone** کپی می‌شوند: `Date`، `Map`، `Set`، `ArrayBuffer`، `Blob`، `File` و Objectهای تودرتو سالم می‌مانند. تابع‌ها، Nodeهای DOM و Prototype نمونه‌های کلاس نه (یک نمونه به شکل Object ساده برمی‌گردد).
+
+### باز کردن Database و ساختن Schema
+
+```js
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open("shop", 1);    // اسم، Version (عدد صحیح مثبت)
+
+    // فقط وقتی DB تازه است یا Version بالا رفته اجرا می‌شود: تنها جای تغییر Schema
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      const products = db.createObjectStore("products", { keyPath: "id" });
+      products.createIndex("byCategory", "category");   // اسم Index، Propertyی که Index می‌شود
+    };
+
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+    request.onblocked = () => reject(new Error("close the other tabs using an older version"));
+  });
+}
+```
+
+<Steps>
+<Step title="indexedDB.open(name, version)">
+بلافاصله یک Object از نوع **Request** برمی‌گرداند، نه خود Database را. نتیجه بعداً از طریق Eventها می‌رسد.
+</Step>
+<Step title="upgradeneeded">
+وقتی Database هنوز وجود ندارد، یا با Version پایین‌تری وجود دارد، اجرا می‌شود. این تنها لحظه‌ای است که می‌توانید Object Store و Index بسازید یا حذف کنید. برای تغییر Schema در آینده، Version را بالا ببرید و اینجا برای هر Version قدیمی تصمیم بگیرید.
+</Step>
+<Step title="success یا error">
+`success` Database باز را در `request.result` به شما می‌دهد. اگر تب دیگری هنوز Version قدیمی را باز نگه داشته باشد و نبندد، `blocked` اجرا می‌شود.
+</Step>
+</Steps>
+
+### خواندن و نوشتن در Transaction
+
+API مربوط به IndexedDB بر پایه‌ی Event ساخته شده، از قبل از اینکه Promise وجود داشته باشد. یک Helper کوچک هر Request را به Promise تبدیل می‌کند:
+
+```js
+const done = (request) =>
+  new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+
+const db = await openDB();
+
+// نوشتن: یک Transaction از نوع readwrite برای چند عملیات
+const tx = db.transaction("products", "readwrite");
+const store = tx.objectStore("products");
+store.put({ id: 1, name: "Pen", category: "office", added: new Date() });  // put یعنی درج یا جایگزینی
+store.put({ id: 2, name: "Ink", category: "office", added: new Date() });
+store.put({ id: 3, name: "Mug", category: "kitchen", added: new Date() });
+await new Promise((resolve, reject) => {
+  tx.oncomplete = resolve;              // حالا همه‌ی نوشتن‌ها روی دیسک هستند
+  tx.onerror = () => reject(tx.error);
+});
+
+// خواندن
+const read = db.transaction("products").objectStore("products");   // به‌طور پیش‌فرض readonly
+(await done(read.get(1))).added instanceof Date;                   // true: Structured Clone تاریخ را نگه می‌دارد
+(await done(read.get(99)));                                         // undefined: پیدا نشد
+(await done(read.index("byCategory").getAll("office"))).length;    // 2
+(await done(read.count()));                                         // 3
+```
+
+| متد | کار | نکته |
+| --- | --- | --- |
+| `store.add(value, key?)` | درج | اگر Key وجود داشته باشد با `ConstraintError` **شکست می‌خورد** |
+| `store.put(value, key?)` | درج یا جایگزینی | انتخاب معمول برای ذخیره |
+| `store.get(key)` | یک رکورد | اگر پیدا نشود `undefined` |
+| `store.getAll(query?, count?)` | چند رکورد | `query` می‌تواند یک Key یا یک `IDBKeyRange` مثل `IDBKeyRange.bound(1, 10)` باشد |
+| `store.delete(key)` / `store.clear()` | حذف یکی / همه | |
+| `store.count(query?)` | شمردن رکوردها | |
+| `store.openCursor(query?, direction?)` | پیمایش رکوردها یکی‌یکی | برای نتیجه‌های خیلی بزرگ |
+| `store.index(name)` | یک Index برای جست‌وجو با Property دیگر | همان `get`، `getAll`، `count` و `openCursor` را دارد |
+
+<Callout type="mistake">
+Transaction به محض اینکه Request منتظری نداشته باشد و کنترل به Event Loop برگردد، **خودبه‌خود Commit می‌شود**. اگر وسط کار برای چیزی بی‌ربط `await` کنید (یک `fetch` یا یک `setTimeout`)، وقتی برمی‌گردید Transaction تمام شده و Request بعدی `TransactionInactiveError` پرتاب می‌کند. **اول** داده را بگیرید، بعد Transaction را باز کنید و بنویسید.
+</Callout>
+
+در پروژه‌های واقعی، بیشتر برنامه‌نویس‌ها به‌جای Eventهای خام از یک Wrapper نازک Promise‌محور مثل کتابخانه‌ی `idb` (حدود ۱ کیلوبایت) یا یک کتابخانه‌ی سطح بالاتر مثل Dexie استفاده می‌کنند.
+
+## Cache API و Origin Private File System
+
+**Cache API** (`caches`) جفت‌هایی از **درخواست و پاسخ** HTTP را ذخیره می‌کند. برای **Service Worker** طراحی شده که درخواست‌های شبکه‌ی صفحه را رهگیری می‌کند و می‌تواند از کش جواب بدهد؛ سایت‌های آفلاین (PWA) همین‌طور کار می‌کنند. در صفحه‌های معمولی هم در دسترس است.
+
+```js
+const cache = await caches.open("assets-v1");
+await cache.addAll(["/", "/app.js", "/styles.css"]);   // هر سه را دانلود و ذخیره می‌کند
+const res = await cache.match("/app.js");              // یک Response، یا undefined
+await caches.delete("assets-v0");                      // حذف نسخه‌ی قدیمی
+```
+
+آن را با **HTTP Cache** اشتباه نگیرید که مرورگر خودش و بر اساس Headerهای پاسخ مثل `Cache-Control` مدیریتش می‌کند (ببینید [HTTP، Fetch و CORS](/browser/http-fetch)). Cache API کاملاً در اختیار شماست: هیچ چیزی منقضی نمی‌شود مگر اینکه خودتان پاکش کنید.
+
+**Origin Private File System** (OPFS) که از `navigator.storage.getDirectory()` به دست می‌آید، به هر Origin یک فایل‌سیستم خصوصی و ایزوله با دسترسی سریع به فایل در Workerها می‌دهد. مثلاً برای اجرای SQLite در مرورگر با WebAssembly از آن استفاده می‌شود.
+
+## سهمیه، حذف خودکار و ماندگاری
+
+IndexedDB، Cache API و OPFS یک **سهمیه** (Quota) مشترک برای هر Origin دارند که معمولاً سهم بزرگی از فضای خالی دیسک است (عدد دقیقش در هر مرورگر فرق می‌کند). می‌توانید بپرسید چقدر استفاده کرده‌اید:
+
+```js
+const { usage, quota } = await navigator.storage.estimate();
+console.log((usage / 1e6).toFixed(1) + " MB used of " + (quota / 1e9).toFixed(1) + " GB");
+
+await navigator.storage.persisted();   // به‌طور پیش‌فرض false: ذخیره‌سازی «Best-effort»
+await navigator.storage.persist();     // درخواست ماندگار شدن
+```
+
+ذخیره‌سازی به‌طور پیش‌فرض **Best-effort** است: وقتی دیسک تقریباً پر است، مرورگر ممکن است داده‌ی Originهایی را که اخیراً کمتر استفاده شده‌اند، یک‌جا پاک کند. ذخیره‌سازی **Persistent** فقط توسط خود کاربر پاک می‌شود. مرورگرها بسته به میزان تعامل کاربر با سایت، `persist()` را خودکار یا با پرسیدن از کاربر قبول می‌کنند. در هر حال، انبار سمت کاربر را مثل یک **کش** ببینید: هر چیزی که نباید از دست برود باید روی سرور باشد.
+
+## کدام را انتخاب کنم؟
+
+| می‌خواهید ذخیره کنید… | استفاده کنید |
+| --- | --- |
+| Session یا توکن احراز هویتی که سرور باید بخواند | یک Cookie با `HttpOnly; Secure; SameSite` |
+| یک تنظیم کوچک کاربر (تم، زبان، بسته بودن Sidebar) | `localStorage` |
+| State مخصوص همین تب (یک فرم چندمرحله‌ای) | `sessionStorage` |
+| داده‌ی ساختاریافته‌ی زیاد، داده‌ی آفلاین، فایل و Blob | IndexedDB (از طریق یک Wrapper) |
+| پاسخ‌ها و فایل‌ها برای استفاده‌ی آفلاین | Cache API + یک Service Worker |
+| فایل‌های بزرگ با دسترسی تصادفی سریع | OPFS |
+| داده‌ای که فقط تا وقتی صفحه باز است لازم است | حافظه‌ی ساده‌ی JavaScript (یک متغیر، یک Store) |
+
+## اشتباهات رایج
+
+- ذخیره‌ی Object در `localStorage` بدون `JSON.stringify` (نتیجه: `"[object Object]"`)، یا false حساب کردن `"false"`.
+- صدا زدن `JSON.parse(localStorage.getItem(k))` بدون در نظر گرفتن کلید ناموجود یا داده‌ی خراب.
+- گذاشتن توکن احراز هویت در `localStorage`، جایی که هر XSS می‌تواند بخواندش.
+- نوشتن داده‌ی حجیم در `localStorage` در مسیری که زیاد اجرا می‌شود: همگام است و Main Thread را معطل می‌کند.
+- انتظار دریافت Event `storage` در همان تبی که تغییر را داده.
+- حذف Cookie بدون همان `Path`/`Domain`، یا یادتان برود همراه `SameSite=None` از `Secure` استفاده کنید.
+- `await` کردن یک کار بی‌ربط وسط یک Transaction در IndexedDB.
+- دائمی فرض کردن هر نوع ذخیره‌سازی مرورگر: کاربرها پاکش می‌کنند، پنجره‌های خصوصی دورش می‌اندازند و مرورگرها حذفش می‌کنند.
+
+## سوالات مصاحبه
+
+<QA q="Cookie، localStorage و sessionStorage را مقایسه کنید." level="junior" n={1}>
+<Answer>
+
+Cookieها کوچک‌اند (حدود ۴ کیلوبایت)، می‌توانند تاریخ انقضا داشته باشند، همراه هر درخواست منطبق به سرور فرستاده می‌شوند و با `HttpOnly` می‌توانند برای JavaScript نامرئی شوند. `localStorage` حدود ۵ مگابایت رشته برای هر Origin نگه می‌دارد، هیچ‌وقت خودکار فرستاده نمی‌شود و تا وقتی پاک نشود می‌ماند. `sessionStorage` همان API و اندازه را دارد اما محدود به یک تب است و با بسته شدن تب پاک می‌شود. هر دو API مربوط به Web Storage همگام‌اند و هر اسکریپتی در صفحه می‌تواند بخواندشان.
+
+</Answer>
+<FollowUp>
+
+برای توکن احراز هویت کدام را انتخاب می‌کنید و چرا؟
+
+</FollowUp>
+</QA>
+
+<QA q="JWT یا توکن Session را کجا نگه داریم: localStorage یا Cookie؟" level="mid" n={2}>
+<Answer>
+
+ترجیحاً در یک Cookie با `HttpOnly; Secure; SameSite=Lax` (یا `Strict`). `HttpOnly` یعنی اسکریپت تزریق‌شده نمی‌تواند بخواندش، پس یک باگ XSS نمی‌تواند توکن را بدزدد. روش Cookie محافظت در برابر CSRF لازم دارد: `SameSite` بیشتر موارد را پوشش می‌دهد، به‌اضافه‌ی CSRF Token یا بررسی `Origin` برای کارهای حساس. `localStorage` در برابر CSRF مصون است (هیچ چیزی خودکار فرستاده نمی‌شود) اما کاملاً در معرض XSS است.
+
+</Answer>
+<Deep>
+
+`HttpOnly` باعث نمی‌شود XSS بی‌خطر شود: کد تزریق‌شده تا وقتی صفحه باز است همچنان می‌تواند **به‌جای کاربر** درخواست بفرستد. فقط جلوی دزدیدن توکن برای استفاده در جای دیگر را می‌گیرد. یک الگوی رایج: Access Token کوتاه‌عمر در حافظه به‌اضافه‌ی Refresh Token در یک Cookie از نوع `HttpOnly`.
+
+</Deep>
+</QA>
+
+<QA q="SameSite چه کار می‌کند و فرق Lax و Strict چیست؟" level="mid" n={3}>
+<Answer>
+
+`SameSite` تعیین می‌کند Cookie روی درخواست‌هایی که سایت دیگری شروعشان کرده فرستاده شود یا نه؛ دفاع اصلی در برابر CSRF همین است. `Strict`: هیچ‌وقت Cross-site فرستاده نمی‌شود، حتی وقتی کاربر روی لینکی به سایت شما کلیک می‌کند (در همان درخواست اول، خارج‌شده از حساب می‌رسد). `Lax` (پیش‌فرض): روی Navigationهای سطح بالا مثل دنبال کردن یک لینک فرستاده می‌شود، اما روی درخواست‌های فرعی Cross-site یا `POST` فرم نه. `None`: همیشه فرستاده می‌شود و باید `Secure` باشد؛ برای کاربردهای مشروع Third-party مثل ویجت‌های جاسازی‌شده لازم است.
+
+</Answer>
+</QA>
+
+<QA q="چرا ممکن است IndexedDB را به localStorage ترجیح دهیم؟" level="mid" n={4}>
+<Answer>
+
+IndexedDB ناهمگام است (Main Thread را معطل نمی‌کند)، مقدارهای ساختاریافته (Date، Map، Blob، فایل) را بدون JSON ذخیره می‌کند، سهمیه‌ی خیلی بزرگ‌تری دارد، از Index و جست‌وجوی بازه‌ای پشتیبانی می‌کند، Transaction دارد و در Web Worker و Service Worker هم کار می‌کند. `localStorage` فقط برای داده‌ی رشته‌ای کوچک است.
+
+</Answer>
+</QA>
+
+<QA q="چطور خروج از حساب را در همه‌ی تب‌های باز هماهنگ می‌کنید؟" level="mid" n={5}>
+<Answer>
+
+موقع خروج یک کلید را از `localStorage` حذف کنید (یا روی یک `BroadcastChannel` پیام بفرستید). بقیه‌ی تب‌ها به Event `storage` (یا Event `message` کانال) گوش می‌دهند و به صفحه‌ی ورود می‌روند. تبی که خروج را انجام داده باید خودش Redirect کند، چون Event `storage` خودش را دریافت نمی‌کند. سرور هم باید Session را باطل کند؛ سیگنال‌های سمت کاربر فقط برای رابط کاربری‌اند.
+
+</Answer>
+</QA>
+
+## جمع‌بندی
+
+<Recap>
+
+- همه‌ی انبارهای مرورگر بر اساس Origin (Scheme + Host + Port) جدا می‌شوند؛ Cookieها به‌جایش با Domain و Path محدود می‌شوند.
+- `localStorage` ماندگار است و `sessionStorage` برای هر تب جداست؛ هر دو همگام، حدود ۵ مگابایت و فقط رشته‌ای‌اند.
+- از `JSON.stringify`/`JSON.parse` همراه `try/catch` استفاده کنید؛ `getItem` برای کلید ناموجود `null` برمی‌گرداند؛ Date و Map از JSON سالم بیرون نمی‌آیند.
+- Event `storage` فقط در تب‌های **دیگر** اجرا می‌شود؛ `BroadcastChannel` پیام‌رسان عمومی بین تب‌هاست.
+- Cookieها همراه هر درخواست منطبق می‌روند؛ برای Cookie Session از `HttpOnly`، `Secure` و `SameSite` استفاده کنید.
+- `document.cookie` همه‌ی Cookieهای غیر HttpOnly را یک‌جا می‌خواند و هر بار یکی را می‌نویسد؛ حذف به همان `Path`/`Domain` و `Max-Age=0` نیاز دارد.
+- IndexedDB یک پایگاه داده‌ی ناهمگام و تراکنشی برای داده‌ی حجیم و ساختاریافته است و در Workerها هم کار می‌کند.
+- Transactionهای IndexedDB خودکار Commit می‌شوند؛ وسطشان برای کار بی‌ربط `await` نکنید.
+- Cache API جفت‌های درخواست/پاسخ را برای Service Worker و حالت آفلاین نگه می‌دارد.
+- ذخیره‌سازی به‌طور پیش‌فرض Best-effort است؛ `navigator.storage.persist()` درخواست ماندگاری می‌کند، اما منبع اصلی حقیقت همچنان سرور است.
+
+</Recap>
