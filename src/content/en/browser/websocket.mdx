@@ -1,0 +1,353 @@
+## Why WebSocket exists
+
+HTTP has one direction of initiative: the **client asks**, the server answers. That works for loading pages, but not for a chat message from a friend, a new price on a trading screen, a cursor moving in a shared document or a notification. In all of these, the **server** has news and needs to tell the client right away.
+
+Before WebSocket, developers faked this with HTTP:
+
+- **Short polling**: ask every few seconds, "anything new?". Mostly empty responses, delayed updates, wasted requests.
+- **Long polling**: ask, and the server holds the request open until it has news (or a timeout), then the client immediately asks again. Better, but every message still costs a full HTTP request with headers.
+
+**WebSocket** solves it properly: one **long-lived, two-way connection** over which either side can send a message at any time, with only a few bytes of overhead per message.
+
+## The options compared
+
+| | Short polling | Long polling | Server-Sent Events | WebSocket |
+| --- | --- | --- | --- | --- |
+| Direction | Client → server (asks) | Client → server (asks) | **Server → client only** | **Both ways** |
+| Latency | Up to the polling interval | Low | Low | Lowest |
+| Overhead per message | A full HTTP request | A full HTTP request | Tiny (a few text lines) | Tiny (2–14 byte frame header) |
+| Data | Anything | Anything | **Text only** (UTF-8) | Text and binary |
+| Reconnects automatically | — | You write it | **Yes, built in** | No, you write it |
+| Works over plain HTTP infrastructure | Yes | Yes | Yes | Needs proxies that support `Upgrade` |
+| Good for | Rare updates, simplicity | Legacy fallback | Notifications, feeds, streaming AI text, progress | Chat, games, collaboration, trading |
+
+## How a WebSocket connection starts: the handshake
+
+A WebSocket connection begins as an ordinary HTTP request that asks the server to **upgrade** the connection to a different protocol:
+
+```http
+GET /chat HTTP/1.1
+Host: chat.example.com
+Upgrade: websocket
+Connection: Upgrade
+Origin: https://example.com
+Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==
+Sec-WebSocket-Version: 13
+Sec-WebSocket-Protocol: chat.v2
+```
+
+```http
+HTTP/1.1 101 Switching Protocols
+Upgrade: websocket
+Connection: Upgrade
+Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=
+Sec-WebSocket-Protocol: chat.v2
+```
+
+<Steps>
+<Step title="The client asks to upgrade">
+The browser sends a `GET` with `Upgrade: websocket` and a random `Sec-WebSocket-Key`. Cookies for that host are attached like on any request, and `Origin` says which site opened it.
+</Step>
+<Step title="The server agrees with 101">
+`101 Switching Protocols` means "from now on, this TCP connection speaks WebSocket". `Sec-WebSocket-Accept` is a hash of the client's key, proving the server really understands WebSocket (not a confused HTTP cache replaying an old response).
+</Step>
+<Step title="Frames flow both ways">
+From here on there's no more HTTP. Both sides exchange **frames**: text frames (UTF-8), binary frames, `ping`/`pong` frames to check the connection is alive, and a `close` frame to end it politely.
+</Step>
+</Steps>
+
+URLs use `ws://` (unencrypted) or **`wss://`** (over TLS, like `https://`). Always use `wss://` in production: it's encrypted, and proxies are much less likely to break it.
+
+<Callout type="warning">
+WebSocket isn't covered by CORS: any site can open a WebSocket to your server, and the browser will attach your users' cookies. If the server authenticates by cookie, it **must check the `Origin` header** during the handshake, or a malicious page can act as the user (**Cross-Site WebSocket Hijacking**).
+</Callout>
+
+## The WebSocket API
+
+<Api name="WebSocket" sig="new WebSocket(url, protocols?) · ws.send(data) · ws.close(code?, reason?)" returns="The constructor returns the socket immediately, in the `CONNECTING` state; the connection opens asynchronously. `send` and `close` return `undefined`." mutates="yes (the connection)">
+
+- `url`: a `ws://` or `wss://` URL. Since recent browser versions, `http(s)://` and relative URLs are also accepted and converted. An invalid URL throws a `SyntaxError`.
+- `protocols` (optional): a string or an array of **subprotocol** names you support, e.g. `["chat.v2", "chat.v1"]`. The server picks one; read it from `ws.protocol` after `open`.
+- `send(data)`: `data` can be a string (sent as a text frame), or a `Blob`, `ArrayBuffer` or typed array (binary frame). Throws `InvalidStateError` while the socket is still `CONNECTING`. After the socket has closed, data is silently discarded.
+- `close(code?, reason?)`: `code` must be `1000` or between `3000` and `4999`, otherwise `InvalidAccessError`. `reason` is a string of at most 123 bytes (UTF-8), otherwise `SyntaxError`.
+
+</Api>
+
+| Property | Meaning |
+| --- | --- |
+| `readyState` | `0` `CONNECTING`, `1` `OPEN`, `2` `CLOSING`, `3` `CLOSED` (also `WebSocket.OPEN` and friends) |
+| `bufferedAmount` | Bytes passed to `send()` that haven't been sent over the network yet |
+| `binaryType` | How binary messages arrive: `"blob"` (default) or `"arraybuffer"` |
+| `protocol` | The subprotocol the server chose (`""` if none) |
+| `url`, `extensions` | The resolved URL; negotiated extensions such as compression |
+
+| Event | When | What you get |
+| --- | --- | --- |
+| `open` | The handshake succeeded | — |
+| `message` | A message arrived | `event.data`: a string, or a `Blob` / `ArrayBuffer` for binary |
+| `error` | Something failed | **No details**, for security reasons; a `close` follows |
+| `close` | The connection is closed | `event.code`, `event.reason`, `event.wasClean` |
+
+```js
+const ws = new WebSocket("wss://chat.example.com/rooms/42");
+ws.binaryType = "arraybuffer";               // receive binary as ArrayBuffer instead of Blob
+
+ws.addEventListener("open", () => {
+  ws.send(JSON.stringify({ type: "join", user: "ada" }));   // only send after open
+});
+
+ws.addEventListener("message", (event) => {
+  if (typeof event.data === "string") {
+    const msg = JSON.parse(event.data);
+    console.log("text", msg);
+  } else {
+    console.log("binary", event.data.byteLength, "bytes");
+  }
+});
+
+ws.addEventListener("close", (event) => {
+  console.log("closed", event.code, event.reason, event.wasClean);
+});
+
+// later
+ws.close(1000, "user left");                 // readyState becomes 2 (CLOSING), then 3 (CLOSED)
+```
+
+### Close codes
+
+| Code | Meaning |
+| --- | --- |
+| `1000` | Normal closure |
+| `1001` | Going away (the server is shutting down, or the page is navigating away) |
+| `1006` | **Abnormal**: the connection dropped without a close frame (network loss, server crash, failed handshake). Never sent by anyone; the browser reports it |
+| `1008` | Policy violation (for example, authentication failed) |
+| `1009` | Message too big |
+| `1011` | Unexpected server error |
+| `1012` / `1013` | Service restarting / try again later |
+| `4000`–`4999` | Free for your application (`4001` "token expired", for example) |
+
+`wasClean` is `true` only when both sides exchanged close frames. Treat `1006` and `wasClean: false` as "reconnect".
+
+## Designing messages
+
+WebSocket only moves strings and bytes; the meaning is up to you. The usual approach is a JSON **envelope** with a `type` field, so each side can route messages:
+
+```js
+// client → server
+{ "type": "subscribe", "channel": "prices:BTC" }
+{ "type": "chat.send", "id": "c-17", "room": 42, "text": "hi" }
+
+// server → client
+{ "type": "ack", "id": "c-17" }                    // confirms message c-17
+{ "type": "price", "channel": "prices:BTC", "value": 61234.5 }
+{ "type": "error", "id": "c-17", "code": "RATE_LIMIT" }
+```
+
+There are no built-in requests and responses: if the client needs to know that **its** message was handled, it sends an `id` and the server echoes it back. For high-volume data, binary formats (MessagePack, Protocol Buffers) are smaller and faster to parse than JSON.
+
+## Reconnecting
+
+Connections drop all the time: Wi‑Fi switches, laptops sleep, servers restart during deploys, proxies close idle connections. The WebSocket API does **not** reconnect by itself, so every real client needs:
+
+- **Exponential backoff**: wait longer after each failed attempt (0.5 s, 1 s, 2 s, 4 s… up to a cap), so thousands of clients don't hammer a recovering server.
+- **Jitter**: add randomness to each delay, so clients that dropped at the same moment don't all reconnect at the same moment (a "thundering herd").
+- **Reset** the attempt counter once a connection succeeds.
+- **Restore state** after reconnecting: re-authenticate, re-subscribe to channels, and fetch what was missed (by asking for messages after the last id you received).
+
+```js run
+// the delay before attempt n: doubles each time, capped at 30 s
+const backoff = (attempt, base = 500, cap = 30_000) => Math.min(cap, base * 2 ** attempt);
+
+console.log([0, 1, 2, 3, 4, 5, 6, 7].map((n) => backoff(n)));
+// [500, 1000, 2000, 4000, 8000, 16000, 30000, 30000]
+
+// "full jitter": a random delay between 0 and the backoff value
+const withJitter = (attempt) => Math.random() * backoff(attempt);
+const d = withJitter(3);
+console.log(d >= 0 && d < 4000);   // true
+```
+
+A small reconnecting client that puts it all together:
+
+```js
+function connect(url, { onMessage, onOpen }) {
+  let ws;
+  let attempt = 0;
+  let stopped = false;
+  const queue = [];                              // messages sent while offline
+
+  const open = () => {
+    ws = new WebSocket(url);
+    ws.addEventListener("open", () => {
+      attempt = 0;                               // success: reset the backoff
+      onOpen?.();                                // re-auth, re-subscribe here
+      while (queue.length) ws.send(queue.shift());
+    });
+    ws.addEventListener("message", (e) => onMessage(JSON.parse(e.data)));
+    ws.addEventListener("close", (e) => {
+      if (stopped || e.code === 1000) return;    // closed on purpose
+      const delay = Math.random() * Math.min(30_000, 500 * 2 ** attempt++);
+      setTimeout(open, delay);
+    });
+  };
+
+  open();
+  return {
+    send(msg) {
+      const data = JSON.stringify(msg);
+      ws.readyState === WebSocket.OPEN ? ws.send(data) : queue.push(data);
+    },
+    close() {
+      stopped = true;
+      ws.close(1000, "client closed");
+    },
+  };
+}
+```
+
+### Heartbeats
+
+A connection can be **half-dead**: the network vanished, but neither side has noticed yet, because TCP may take minutes to time out. The protocol has `ping`/`pong` frames, but the **browser API can't send them**; only servers usually do. So applications add their own heartbeat: the client sends `{"type":"ping"}` every 20–30 seconds and treats the socket as dead (closes it and reconnects) if no `pong` arrives within a few seconds. A regular message also keeps proxies from closing the connection as idle.
+
+### Backpressure
+
+`send()` never blocks: if you send faster than the network can carry, data piles up in the browser's memory. Watch `ws.bufferedAmount` and pause sending (or drop stale updates, such as old cursor positions) when it grows.
+
+## Authentication
+
+The browser's `WebSocket` constructor **cannot set custom headers**, so there's no `Authorization: Bearer …`. The common options:
+
+| Approach | How | Watch out for |
+| --- | --- | --- |
+| Cookie | The handshake sends cookies automatically | Must check `Origin` (hijacking, above); `SameSite` rules apply |
+| Short-lived ticket in the URL | Get a one-time token over `fetch`, then `wss://…/ws?ticket=…` | URLs end up in logs: make the ticket single-use and valid for seconds |
+| First message | Connect, then send `{ type: "auth", token }`; the server closes the socket (`1008` or `4001`) if it isn't valid in time | The server must ignore everything before auth |
+
+When a token expires during a long-lived connection, the server should close with an application code (for example `4001`), and the client refreshes the token before reconnecting.
+
+## Server-Sent Events: the simpler alternative
+
+If data only flows **from the server to the client**, **Server-Sent Events** (SSE) are often the better choice. They're plain HTTP: the server keeps a response open with `Content-Type: text/event-stream` and writes events as text:
+
+```text
+id: 41
+event: price
+data: {"symbol":"BTC","value":61234.5}
+
+data: a message without a type
+
+retry: 5000
+```
+
+Each event ends with an empty line. `data:` holds the payload (several `data:` lines are joined with newlines), `event:` names the type, `id:` sets the last event id, and `retry:` changes the reconnect delay in milliseconds.
+
+<Api name="EventSource" sig="new EventSource(url, { withCredentials? }) · es.close()" returns="The `EventSource`; it connects immediately and reconnects automatically." mutates="no">
+
+- `url`: the stream URL (same-origin, or cross-origin with CORS).
+- `withCredentials` (default `false`): send cookies on cross-origin streams.
+- `readyState`: `0` connecting, `1` open, `2` closed (only after `close()` or a fatal error).
+- Events: `open`, `error` (also fired before each automatic reconnect), `message` (events without `event:`), and one event per custom type (`event: price` → `addEventListener("price", …)`).
+
+</Api>
+
+```js
+const es = new EventSource("/api/prices");
+
+es.addEventListener("price", (e) => {
+  const { symbol, value } = JSON.parse(e.data);
+  console.log(symbol, value, "last id", e.lastEventId);
+});
+es.addEventListener("message", (e) => console.log("untyped:", e.data));
+es.addEventListener("error", () => console.log("disconnected, the browser will retry"));
+```
+
+When the connection drops, the browser reconnects by itself and sends a `Last-Event-ID` header with the last `id` it received, so the server can resume where it left off. That's the reconnect logic you had to write by hand for WebSocket, for free.
+
+Limits of SSE: text only, one direction (send data to the server with normal `fetch`), and no custom request headers with `EventSource`. On HTTP/1.1, each open stream uses one of the roughly six connections per host; on HTTP/2 and HTTP/3 that limit doesn't matter. Streaming answers from AI chat APIs are a popular modern use of the SSE format (often read with `fetch` and `res.body` instead of `EventSource`, so the request can be a `POST`).
+
+## Running WebSockets in production
+
+- **Stateful connections**: every connected user holds an open socket on one particular server. Load balancers must support long-lived connections, and messages for a user may need to reach whichever server holds their socket, usually through a pub/sub system (Redis, NATS, Kafka).
+- **Deploys** disconnect everyone: reconnect with jitter, and let servers drain connections gradually.
+- **Proxies and firewalls** may close idle connections or block `Upgrade`; `wss://` and heartbeats help.
+- **Hidden tabs**: browsers throttle timers in background tabs, which can delay your heartbeats; some apps close the socket on `visibilitychange` to save resources and reconnect when the tab is visible again.
+- Libraries such as Socket.IO add reconnection, rooms, acknowledgements and a fallback to long polling, but they use their **own protocol** on top of WebSocket: a plain `WebSocket` client can't talk to a Socket.IO server.
+
+## Common mistakes
+
+- Calling `send()` before `open` (throws `InvalidStateError`), or after close (data silently lost).
+- No reconnect logic, or reconnecting instantly in a tight loop without backoff.
+- Forgetting to re-subscribe and re-sync after a reconnect, so the UI shows stale data.
+- Trying to set an `Authorization` header on a browser `WebSocket`.
+- Not checking `Origin` on the server when using cookie authentication.
+- Using `ws://` in production.
+- Expecting the `error` event to explain what went wrong; check `close` codes and server logs instead.
+- Choosing WebSocket when the data only flows server → client; SSE is simpler and reconnects by itself.
+
+## Interview questions
+
+<QA q="How does a WebSocket connection get established?" level="mid" n={1}>
+<Answer>
+
+It starts as an HTTP `GET` with `Upgrade: websocket`, `Connection: Upgrade`, a random `Sec-WebSocket-Key` and the version. If the server accepts, it responds with `101 Switching Protocols` and a `Sec-WebSocket-Accept` derived from the key. After that, the same TCP connection carries WebSocket frames in both directions (text, binary, ping/pong, close) with no more HTTP.
+
+</Answer>
+<FollowUp>
+
+Why doesn't CORS apply, and what must the server check instead?
+
+</FollowUp>
+</QA>
+
+<QA q="WebSocket vs Server-Sent Events vs long polling: when would you choose each?" level="mid" n={2}>
+<Answer>
+
+WebSocket when both sides send frequently with low latency: chat, multiplayer, collaborative editing, trading. SSE when only the server pushes (notifications, live feeds, progress, streaming text): it's plain HTTP, simpler, and reconnects automatically with `Last-Event-ID`. Long polling only as a fallback where neither works, or for rare updates where simplicity matters most.
+
+</Answer>
+</QA>
+
+<QA q="How would you make a WebSocket client resilient to network failures?" level="senior" n={3}>
+<Answer>
+
+Reconnect on unexpected `close` (`1006`, `wasClean: false`) with exponential backoff plus jitter and a maximum delay; reset the backoff after a successful connection. After reconnecting, re-authenticate, re-subscribe and fetch missed messages using the last received id or sequence number. Detect half-dead connections with an application-level heartbeat. Queue or reject outgoing messages while disconnected and make them idempotent with client-generated ids, so a resend after reconnecting doesn't duplicate actions. Show the connection state in the UI.
+
+</Answer>
+<Deep>
+
+Also consider `online`/`offline` and `visibilitychange` events to reconnect immediately when the network or tab comes back, instead of waiting for the backoff timer.
+
+</Deep>
+</QA>
+
+<QA q="How do you authenticate a WebSocket from the browser?" level="mid" n={4}>
+<Answer>
+
+The browser API can't add custom headers. Options: rely on cookies sent with the handshake (and verify `Origin` on the server), pass a short-lived single-use ticket obtained via `fetch` in the query string, or send a token as the first message and have the server close the connection if it doesn't authenticate in time. For long sessions, the server closes with an application code when the token expires, and the client refreshes and reconnects.
+
+</Answer>
+</QA>
+
+<QA q="What does close code 1006 mean?" level="junior" n={5}>
+<Answer>
+
+Abnormal closure: the connection ended without a proper close frame, typically a network drop, a server crash or a failed handshake. It's never sent by either side; the browser reports it locally. The client should treat it as a reason to reconnect with backoff.
+
+</Answer>
+</QA>
+
+## Recap
+
+<Recap>
+
+- WebSocket = one long-lived, two-way connection; it starts with an HTTP `Upgrade` and a `101 Switching Protocols` response.
+- Use `wss://`; CORS doesn't apply, so the server must check `Origin` when it authenticates with cookies.
+- `send()` throws while `CONNECTING` and silently drops data after close; `close()` accepts `1000` or `3000`–`4999` and a reason of at most 123 bytes.
+- The `error` event has no details; use `close` codes (`1000` normal, `1006` abnormal, `4000`–`4999` yours) and `wasClean`.
+- Messages are just strings or bytes: design an envelope with `type` and an `id` for acknowledgements.
+- Reconnect yourself with exponential backoff + jitter, then re-authenticate, re-subscribe and resync.
+- Browsers can't send protocol pings: add an application heartbeat to detect half-dead connections.
+- The browser `WebSocket` can't set headers: authenticate with cookies + `Origin` check, a short-lived ticket, or a first message.
+- For server → client only, prefer Server-Sent Events: plain HTTP, text, automatic reconnect with `Last-Event-ID`.
+
+</Recap>

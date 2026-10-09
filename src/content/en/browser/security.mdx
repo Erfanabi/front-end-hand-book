@@ -1,0 +1,337 @@
+## Why frontend developers own security too
+
+It's tempting to think security is the backend's job. But the browser runs **your** code next to **your users'** cookies, tokens and personal data. One unescaped string in the UI can let an attacker run JavaScript as the user (**XSS**), and one missing header can let another site click buttons in your app without the user knowing. Interviewers ask about these attacks because they come directly from everyday frontend decisions: how you render text, where you store tokens, which scripts you load.
+
+The golden rule: **the client is never trusted**. Anything in the browser (validation, hidden buttons, the JavaScript bundle) can be read and changed by the user. The server must check everything again. Frontend security is about not handing attackers extra power.
+
+## The foundation: origins and sites
+
+The **same-origin policy** (see [CORS](/browser/http-fetch#cors-cross-origin-requests)) isolates **origins**: scheme + host + port. Some protections use a broader idea, the **site**: the scheme plus the **registrable domain** (the domain you can buy, also called eTLD+1).
+
+| Two URLs | Same origin? | Same site? |
+| --- | --- | --- |
+| `https://shop.com` and `https://shop.com/cart` | Yes | Yes |
+| `https://shop.com` and `https://api.shop.com` | No (host differs) | **Yes** (both `shop.com`) |
+| `https://shop.com` and `http://shop.com` | No | No (scheme differs) |
+| `https://a.github.io` and `https://b.github.io` | No | **No**: `github.io` is on the Public Suffix List, so each subdomain is its own site |
+
+`SameSite` cookies and the `Sec-Fetch-Site` header are based on **site**; storage, `fetch` and DOM access are based on **origin**.
+
+## XSS: cross-site scripting
+
+**XSS** happens when an attacker manages to run their JavaScript inside your page. That script runs with your origin's full power: it can read the DOM, call your APIs with the user's cookies, read `localStorage`, change what the user sees, and send everything to the attacker.
+
+### The three kinds
+
+| Kind | Where the malicious input lives | Example |
+| --- | --- | --- |
+| **Stored** | In your database; every visitor gets it | A comment containing `<img src=x onerror=…>` shown to all readers |
+| **Reflected** | In the request (URL, form) and echoed back by the server | `/search?q=<script>…</script>` rendered as "Results for …" |
+| **DOM-based** | Never reaches the server; client JavaScript reads it and writes it into the DOM | `el.innerHTML = location.hash.slice(1)` |
+
+### How it happens: dangerous sinks
+
+A **source** is anywhere untrusted data comes from: URL parameters, `location.hash`, form fields, API responses containing user content, `postMessage` data. A **sink** is a place where a string becomes code or markup:
+
+| Sink | Why it's dangerous |
+| --- | --- |
+| `innerHTML`, `outerHTML`, `insertAdjacentHTML`, `document.write` | The string is parsed as HTML; event-handler attributes run |
+| `eval`, `new Function`, `setTimeout("code")`, `setInterval("code")` | The string is run as JavaScript |
+| `a.href`, `location`, `iframe.src`, `form.action` set to user input | A `javascript:` URL runs code when followed |
+| `iframe.srcdoc` | A whole HTML document |
+| `el.setAttribute("onclick", …)`, `el.setAttribute("style", …)` | Code, or CSS-based data leaks |
+| React's `dangerouslySetInnerHTML`, Vue's `v-html` | The framework's escape hatch around its auto-escaping |
+
+```html live
+<div id="unsafe"></div>
+<div id="safe"></div>
+<pre id="log" style="font-size:13px"></pre>
+<script>
+  const log = (l) => (document.getElementById("log").textContent += l + "\n");
+  window.steal = () => log("💥 attacker code ran!");
+
+  // imagine this came from a comment field or the URL
+  const comment = '<img src="x" onerror="steal()"> nice post';
+
+  document.getElementById("unsafe").innerHTML = comment;    // ✗ parsed: onerror runs
+  document.getElementById("safe").textContent = comment;    // ✓ shown as plain text
+  log("rendered both");                                   // printed first: the image error fires a moment later
+</script>
+```
+
+### Defense 1: treat data as text
+
+The most effective defense is boring: **never build HTML from strings**. Create elements and set `textContent`, or let a framework do it. React, Vue, Angular and Svelte **escape** values in templates automatically: `{comment}` in JSX becomes text, never markup.
+
+If you must produce an HTML string (an email template, a server-rendered page), **escape** the special characters for the context:
+
+```js run
+const escapeHtml = (s) =>
+  s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+
+console.log(escapeHtml(`<img src=x onerror="alert('hi')">`));
+// &lt;img src=x onerror=&quot;alert(&#39;hi&#39;)&quot;&gt;
+```
+
+Escaping depends on **where** the value goes: HTML text, an attribute value, a URL, inside a `<script>`, inside CSS. Each context has different rules, which is why hand-written escaping is risky and template engines that understand context are preferred.
+
+### Defense 2: validate URLs
+
+Escaping doesn't help when user input becomes a **URL**: `<a href="javascript:steal()">` contains no special HTML characters at all. Parse the URL and allow only safe protocols:
+
+```js run
+function safeUrl(input, base = "https://shop.com") {
+  try {
+    const url = new URL(input, base);                   // the same parser the browser uses
+    return ["https:", "http:", "mailto:"].includes(url.protocol) ? url.href : null;
+  } catch {
+    return null;                                        // not a URL at all
+  }
+}
+
+console.log(safeUrl("https://ok.com/x"));      // https://ok.com/x
+console.log(safeUrl("/profile"));              // https://shop.com/profile
+console.log(safeUrl(" JAVASCRIPT:alert(1)"));  // null: spaces and case don't fool the parser
+console.log(safeUrl("java\tscript:alert(1)")); // null: the parser removes tabs, so would the browser
+console.log(safeUrl("data:text/html,<b>x</b>")); // null
+console.log(new URL("//evil.com", "https://shop.com").href); // https://evil.com/: watch out for redirects
+```
+
+<Callout type="mistake">
+Checking `input.startsWith("javascript:")` yourself. Browsers ignore leading spaces, tabs and newlines inside the scheme, and the scheme is case-insensitive, so `" JaVa\tScRiPt:…"` slips through. Let `new URL()` normalize it first. The same applies to **open redirects**: `?next=//evil.com` looks like a path but is a full URL to another site; compare `url.origin` with your own origin before redirecting.
+</Callout>
+
+### Defense 3: sanitize HTML you must render
+
+Sometimes rendering user HTML is the feature: a rich-text editor, Markdown comments, an email client. Then use a well-maintained **sanitizer** such as **DOMPurify**, which parses the HTML and removes everything not on an allow list (scripts, event handlers, `javascript:` URLs):
+
+```js
+import DOMPurify from "dompurify";
+el.innerHTML = DOMPurify.sanitize(userHtml);   // <img src=x onerror=…> becomes <img src="x">
+```
+
+Never write your own sanitizer with regular expressions: HTML parsing has too many edge cases. Browsers are also adding a built-in **Sanitizer API** (`el.setHTML(userHtml)`); check support before relying on it.
+
+### Defense 4: Content Security Policy
+
+**CSP** is a response header that tells the browser **which scripts and resources are allowed** on the page. Even if an attacker injects markup, the browser refuses to run scripts the policy doesn't allow. It's the safety net behind your other defenses.
+
+```http
+Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-r4nd0m' 'strict-dynamic';
+  object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self';
+  img-src 'self' https: data:; connect-src 'self' https://api.shop.com; upgrade-insecure-requests
+```
+
+| Directive | Controls |
+| --- | --- |
+| `default-src` | The fallback for every `*-src` directive not listed |
+| `script-src` | Where scripts may come from. `'self'` = your origin; `'nonce-…'` = only `<script nonce="…">` with this random value; `'strict-dynamic'` = scripts loaded by trusted scripts are trusted too |
+| `style-src`, `img-src`, `font-src`, `media-src` | Styles, images, fonts, audio/video |
+| `connect-src` | Where `fetch`, XHR, WebSocket and `EventSource` may connect |
+| `frame-src` / `frame-ancestors` | What you may embed / **who may embed you** (clickjacking, below) |
+| `object-src 'none'` | Blocks old plugins (`<object>`, `<embed>`) |
+| `base-uri` | Stops an injected `<base href>` from redirecting relative URLs |
+| `form-action` | Where forms may submit |
+| `upgrade-insecure-requests` | Loads `http://` resources over `https://` |
+| `report-to` | Where the browser sends violation reports |
+
+- Inline scripts and `on*` attributes are **blocked** unless you allow them; `'unsafe-inline'` allows them but removes most of the protection against XSS. Use **nonces** (a new random value on every response) or **hashes** instead.
+- `'unsafe-eval'` allows `eval` and `new Function`; avoid it.
+- Roll out with **`Content-Security-Policy-Report-Only`** first: violations are reported but nothing is blocked, so you can find what would break.
+
+### Defense 5: Trusted Types
+
+**Trusted Types** make dangerous sinks refuse plain strings. With the CSP directive `require-trusted-types-for 'script'`, assigning a string to `innerHTML` throws; only values created by a **policy** you define (which sanitizes them) are accepted. This makes DOM-based XSS mistakes impossible to ship by accident and easy to audit. It's supported in Chromium-based browsers, and other engines are adding it.
+
+```js
+const policy = trustedTypes.createPolicy("app", {
+  createHTML: (input) => DOMPurify.sanitize(input),   // the only way to produce HTML
+});
+el.innerHTML = policy.createHTML(userHtml);   // ✓
+el.innerHTML = userHtml;                      // ✗ TypeError under the CSP directive
+```
+
+## CSRF: cross-site request forgery
+
+Remember that cookies are attached **automatically** to every request to their site, whoever started it ([Browser storage](/browser/storage#cookies)). **CSRF** abuses that: a page on `evil.com` makes the user's browser send a request to `bank.com`, and the browser adds the bank's session cookie.
+
+```html
+<!-- on evil.com: submits itself as soon as the page loads -->
+<form action="https://bank.com/transfer" method="POST">
+  <input type="hidden" name="to" value="attacker" />
+  <input type="hidden" name="amount" value="1000" />
+</form>
+<script>document.forms[0].submit();</script>
+```
+
+The attacker can't **read** the response (the same-origin policy prevents that), but they don't need to: the transfer already happened. CSRF is about **actions**, not data theft.
+
+| Defense | How it stops CSRF |
+| --- | --- |
+| `SameSite=Lax` or `Strict` cookies | The cookie isn't sent on cross-site `POST`s, `fetch`es or sub-requests. `Lax` is the browser default, which already blocks the attack above |
+| CSRF token | The server puts a random token in the page; state-changing requests must send it back (a hidden field or header). `evil.com` can't read your page, so it can't know the token |
+| Check `Origin` / `Sec-Fetch-Site` | Reject state-changing requests whose `Origin` isn't yours, or whose `Sec-Fetch-Site` is `cross-site` |
+| Require a custom header or JSON body | `Content-Type: application/json` or `X-Requested-With` makes cross-origin requests non-simple, so they need a CORS preflight your server won't approve |
+| Never change state with `GET` | `GET`s are sent by links, images and prefetching; they must be safe |
+
+<Callout type="note">
+`SameSite=Lax` doesn't cover everything: it still sends cookies on top-level `GET` navigations (so `GET` must never change state), and **same-site** subdomains (`evil.shop.com` attacking `shop.com`) count as same-site. Use defense in depth: `SameSite` plus a token or `Origin` check on sensitive actions.
+</Callout>
+
+## Clickjacking
+
+**Clickjacking** loads your site in an invisible `<iframe>` on top of a harmless-looking page. The user thinks they're clicking "Play video" but actually clicks "Delete account" in your frame. The fix is to forbid other sites from framing you:
+
+```http
+Content-Security-Policy: frame-ancestors 'none'
+X-Frame-Options: DENY
+```
+
+`frame-ancestors 'self'` (or `X-Frame-Options: SAMEORIGIN`) allows only your own site to frame you; you can also list trusted embedders. `X-Frame-Options` is the older header; send both for older browsers.
+
+## HTTPS and HSTS
+
+Everything above assumes nobody can tamper with the traffic. **HTTPS** encrypts and authenticates it, so attackers on the same Wi‑Fi can't read or change your pages. Browsers block **mixed content**: scripts and other active resources loaded over `http://` on an `https://` page.
+
+The first `http://` request before a redirect to `https://` is still vulnerable. **HSTS** closes that gap:
+
+```http
+Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
+```
+
+After seeing it once, the browser uses `https://` for that domain for `max-age` seconds, without ever trying `http://`. With `preload`, you can submit the domain to a list built into browsers, protecting even the very first visit.
+
+## Other security headers
+
+| Header | Purpose | Typical value |
+| --- | --- | --- |
+| `X-Content-Type-Options` | Stop the browser from guessing ("sniffing") a different type than `Content-Type`, e.g. running an uploaded `.txt` as a script | `nosniff` |
+| `Referrer-Policy` | How much of the current URL is sent in `Referer` to other sites | `strict-origin-when-cross-origin` (the browser default) |
+| `Permissions-Policy` | Turn off powerful features for your page and its iframes | `camera=(), microphone=(), geolocation=(self)` |
+| `Cross-Origin-Opener-Policy` | Separate your window from cross-origin popups (no `window.opener` access) | `same-origin` |
+| `Cross-Origin-Embedder-Policy` | Only load cross-origin resources that explicitly allow it; together with COOP enables **cross-origin isolation** (needed for `SharedArrayBuffer`, precise timers) | `require-corp` |
+| `Cross-Origin-Resource-Policy` | Who may embed **your** resources (images, scripts) | `same-site` |
+
+## Third-party code and supply chain
+
+Every script you include runs with your origin's full power, whether it's an analytics snippet, a chat widget or an npm package.
+
+- **Subresource Integrity** (SRI): pin a CDN file to an exact hash, so a compromised CDN can't swap it:
+
+  ```html
+  <script src="https://cdn.example.com/lib@4.2.1/lib.min.js"
+          integrity="sha384-BASE64_HASH_OF_THIS_EXACT_FILE"
+          crossorigin="anonymous"></script>
+  ```
+
+  Generate the hash with `openssl dgst -sha384 -binary lib.min.js | openssl base64 -A` (many CDNs show it for you). If the downloaded file doesn't match, the browser refuses to run it.
+
+- **Sandbox** untrusted embeds: `<iframe sandbox="allow-scripts">` gives the frame an opaque origin (no access to your cookies or DOM). Add only the permissions it needs (`allow-forms`, `allow-popups`, …). Never combine `allow-scripts` with `allow-same-origin` for same-origin content: the frame could remove its own sandbox.
+- **Dependencies**: keep the lockfile committed, review new packages, run `npm audit` (or your tool's equivalent), and update regularly. A malicious package update is a real attack vector.
+- **postMessage**: when receiving messages from other windows, always check `event.origin`; when sending, give an exact `targetOrigin`, never `"*"` for sensitive data.
+
+```js
+window.addEventListener("message", (event) => {
+  if (event.origin !== "https://payments.example.com") return;   // ignore everyone else
+  handlePayment(event.data);
+});
+
+paymentFrame.contentWindow.postMessage({ amount: 42 }, "https://payments.example.com");
+```
+
+## Secrets don't belong in the frontend
+
+Everything shipped to the browser is **public**: the JavaScript bundle, source maps, environment variables baked in at build time (`import.meta.env.VITE_*`, `NEXT_PUBLIC_*`), and network requests in DevTools. An API key in frontend code is a published API key.
+
+- Keys that must stay secret (payment providers, AI APIs, databases) live on a server; the frontend calls **your** backend, which calls the third party.
+- Keys that are designed to be public (a maps key, a Stripe *publishable* key) should be restricted by domain or permission in the provider's dashboard.
+- Hiding a button doesn't protect the action: the server must check permissions on every request.
+
+## Common mistakes
+
+- Using `innerHTML` (or `dangerouslySetInnerHTML`, `v-html`) with data that could contain user input.
+- Validating URLs with string checks instead of `new URL()` plus a protocol allow list.
+- Redirecting to a `?next=` parameter without checking that it stays on your origin.
+- Thinking React makes XSS impossible: escape hatches, `href` values and server-rendered HTML still need care.
+- A CSP with `'unsafe-inline'` and `'unsafe-eval'` everywhere, which blocks almost nothing.
+- Changing state with `GET`, or relying on CORS to stop CSRF.
+- Allowing your site to be framed by anyone.
+- Shipping secret keys in the bundle or in `VITE_*` variables.
+- `postMessage` listeners that don't check `event.origin`.
+
+## Interview questions
+
+<QA q="What is XSS and how do you prevent it?" level="junior" n={1}>
+<Answer>
+
+XSS is when an attacker gets their JavaScript to run in your page, with your origin's privileges: they can read data, call APIs as the user and change the page. It comes in stored, reflected and DOM-based forms. Prevention: render untrusted data as text (`textContent`, framework templates that escape automatically), avoid HTML sinks like `innerHTML` and `eval`, escape correctly for the context when generating HTML on the server, validate URLs against a protocol allow list, sanitize unavoidable user HTML with DOMPurify, and add a strict CSP (nonces, no `'unsafe-inline'`) plus Trusted Types as a safety net.
+
+</Answer>
+<FollowUp>
+
+Does using React mean you're safe from XSS? Where can it still happen?
+
+</FollowUp>
+</QA>
+
+<QA q="Explain CSRF and how SameSite cookies help." level="mid" n={2}>
+<Answer>
+
+CSRF makes the victim's browser send a state-changing request to a site where they're logged in; the browser attaches their cookies, so the request is authenticated. The attacker can't read the response but the action happens. `SameSite=Lax` (the default) stops cookies from being sent on cross-site POSTs and sub-requests, which blocks classic CSRF; `Strict` also blocks them on top-level navigations. Add a CSRF token or `Origin` / `Sec-Fetch-Site` checks for sensitive endpoints, and never change state with GET.
+
+</Answer>
+<Mistake>
+
+Saying CORS prevents CSRF. A simple cross-site POST is still sent and executed; CORS only hides the response.
+
+</Mistake>
+</QA>
+
+<QA q="What is a Content Security Policy and what makes one strong?" level="mid" n={3}>
+<Answer>
+
+A response header that restricts where scripts, styles, images, connections and frames can come from, so injected markup can't run arbitrary scripts. A strong policy uses nonces or hashes for scripts (with `'strict-dynamic'`), doesn't use `'unsafe-inline'` or `'unsafe-eval'`, sets `object-src 'none'` and `base-uri 'none'`, and adds `frame-ancestors` against clickjacking. Roll it out with `Report-Only` first and monitor reports.
+
+</Answer>
+</QA>
+
+<QA q="What is clickjacking and how do you prevent it?" level="junior" n={4}>
+<Answer>
+
+An attacker embeds your site in a transparent iframe over their own page and tricks users into clicking your buttons. Prevent it by forbidding framing with `Content-Security-Policy: frame-ancestors 'none'` (or `'self'`), plus `X-Frame-Options: DENY` for older browsers.
+
+</Answer>
+</QA>
+
+<QA q="A user-supplied link is rendered as <a href={url}>. What can go wrong?" level="mid" n={5}>
+<Answer>
+
+If `url` is `javascript:…`, clicking it runs code in your origin (XSS). Escaping doesn't help because no HTML characters are involved. Parse it with `new URL(url, location.origin)` and allow only `https:`, `http:` and maybe `mailto:`; the parser normalizes case, spaces and tabs that would fool string checks. For links opening in a new tab, `rel="noopener"` (the default for `target="_blank"` in modern browsers) prevents the new page from controlling yours through `window.opener`.
+
+</Answer>
+</QA>
+
+<QA q="How would you safely embed a third-party widget?" level="senior" n={6}>
+<Answer>
+
+Prefer an `<iframe>` over a `<script>`: a script runs with your full privileges, a cross-origin iframe doesn't. Add `sandbox` with only the needed permissions, restrict features with the `allow` attribute and `Permissions-Policy`, and communicate through `postMessage` with strict origin checks on both sides. If it has to be a script, pin it with SRI, list its origin explicitly in the CSP, load it `async`, and review what data it can reach. Monitor it through CSP reports.
+
+</Answer>
+</QA>
+
+## Recap
+
+<Recap>
+
+- Never trust the client: the server re-validates everything; the frontend's job is not to give attackers extra power.
+- Origin = scheme + host + port; site = scheme + registrable domain. `SameSite` is about sites, storage and `fetch` are about origins.
+- XSS = attacker JavaScript in your origin; stored, reflected and DOM-based. It enters through sinks like `innerHTML`, `eval` and `javascript:` URLs.
+- Render data as text, escape by context, validate URLs with `new URL()` + an allow list, sanitize unavoidable HTML with DOMPurify.
+- A strict CSP (nonces, `'strict-dynamic'`, no `'unsafe-inline'`) and Trusted Types are the safety net for XSS.
+- CSRF abuses automatically attached cookies; `SameSite`, CSRF tokens, `Origin` checks and safe `GET`s stop it. CORS does not.
+- Prevent clickjacking with `frame-ancestors` (and `X-Frame-Options`).
+- Use HTTPS everywhere and HSTS; add `nosniff`, a `Referrer-Policy` and a `Permissions-Policy`.
+- Third-party code runs with your privileges: use SRI, sandboxed iframes, strict `postMessage` origin checks, and audit dependencies.
+- Anything in the bundle is public: secrets stay on the server.
+
+</Recap>

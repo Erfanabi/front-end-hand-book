@@ -381,6 +381,18 @@ const descriptions: Record<string, Localized> = {
     fa: 'Origin و پارتیشن‌بندی، localStorage و sessionStorage، Event storage، Cookie و Attributeهایش، IndexedDB و Transactionها، Cache API، سهمیه و انتخاب انبار درست.',
     en: 'Origins and partitioning, localStorage and sessionStorage, the storage event, cookies and their attributes, IndexedDB and transactions, the Cache API, quotas and choosing a store.',
   },
+  'browser/http-fetch': {
+    fa: 'ساختار HTTP، Methodها و Status Codeها، نسخه‌های HTTP، fetch و Response، مدیریت خطا، لغو و Timeout، HTTP Cache و CORS با Preflight.',
+    en: 'HTTP messages, methods and status codes, HTTP versions, fetch and Response, error handling, cancel and timeouts, the HTTP cache, and CORS with preflight.',
+  },
+  'browser/websocket': {
+    fa: 'Polling در برابر SSE در برابر WebSocket، Handshake و فریم‌ها، API و کدهای بسته شدن، طراحی پیام، اتصال دوباره با Backoff، Heartbeat، احراز هویت و EventSource.',
+    en: 'Polling vs SSE vs WebSocket, the handshake and frames, the API and close codes, message design, reconnecting with backoff, heartbeats, authentication and EventSource.',
+  },
+  'browser/security': {
+    fa: 'Origin و Site، انواع XSS و Sinkهای خطرناک، Escape و اعتبارسنجی URL، CSP و Trusted Types، CSRF، Clickjacking، HSTS، Headerهای امنیتی و کد Third-party.',
+    en: 'Origins and sites, XSS types and dangerous sinks, escaping and URL validation, CSP and Trusted Types, CSRF, clickjacking, HSTS, security headers and third-party code.',
+  },
 }
 
 for (const part of parts) {

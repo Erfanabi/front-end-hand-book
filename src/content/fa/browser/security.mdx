@@ -1,0 +1,337 @@
+## چرا امنیت کار فرانت‌اند هم هست؟
+
+وسوسه‌انگیز است فکر کنیم امنیت کار بک‌اند است. اما مرورگر کد **شما** را کنار Cookieها، توکن‌ها و اطلاعات شخصی **کاربران شما** اجرا می‌کند. یک رشته‌ی Escape‌نشده در رابط کاربری کافی است تا مهاجم بتواند به‌جای کاربر JavaScript اجرا کند (**XSS**)، و یک Header جاافتاده کافی است تا یک سایت دیگر بدون اطلاع کاربر روی دکمه‌های برنامه‌ی شما کلیک کند. مصاحبه‌کننده‌ها این حمله‌ها را می‌پرسند چون مستقیماً از تصمیم‌های روزمره‌ی فرانت‌اند می‌آیند: متن را چطور Render می‌کنید، توکن را کجا نگه می‌دارید، چه اسکریپت‌هایی لود می‌کنید.
+
+قانون طلایی: **به Client هیچ‌وقت اعتماد نکنید**. هر چیزی در مرورگر (اعتبارسنجی، دکمه‌های مخفی، Bundle جاوااسکریپت) را کاربر می‌تواند بخواند و تغییر دهد. سرور باید همه‌چیز را دوباره بررسی کند. امنیت فرانت‌اند یعنی قدرت اضافه‌ای به مهاجم ندهید.
+
+## پایه: Origin و Site
+
+**Same-origin Policy** (ببینید [CORS](/browser/http-fetch#cors-درخواستهای-cross-origin)) **Origin**ها را از هم جدا می‌کند: Scheme + Host + Port. بعضی محافظت‌ها از مفهوم گسترده‌تری به اسم **Site** استفاده می‌کنند: Scheme به‌اضافه‌ی **دامنه‌ی قابل ثبت** (دامنه‌ای که می‌شود خرید؛ به آن eTLD+1 هم می‌گویند).
+
+| دو URL | هم‌Origin؟ | هم‌Site؟ |
+| --- | --- | --- |
+| `https://shop.com` و `https://shop.com/cart` | بله | بله |
+| `https://shop.com` و `https://api.shop.com` | نه (Host فرق دارد) | **بله** (هر دو `shop.com`) |
+| `https://shop.com` و `http://shop.com` | نه | نه (Scheme فرق دارد) |
+| `https://a.github.io` و `https://b.github.io` | نه | **نه**: `github.io` در Public Suffix List است، پس هر زیردامنه یک Site جداست |
+
+Cookieهای `SameSite` و Header `Sec-Fetch-Site` بر اساس **Site** کار می‌کنند؛ ذخیره‌سازی، `fetch` و دسترسی به DOM بر اساس **Origin**.
+
+## XSS: یعنی Cross-site Scripting
+
+**XSS** وقتی اتفاق می‌افتد که مهاجم موفق شود JavaScript خودش را داخل صفحه‌ی شما اجرا کند. این اسکریپت با تمام قدرت Origin شما اجرا می‌شود: می‌تواند DOM را بخواند، APIهای شما را با Cookieهای کاربر صدا بزند، `localStorage` را بخواند، چیزی را که کاربر می‌بیند تغییر دهد و همه را برای مهاجم بفرستد.
+
+### سه نوع XSS
+
+| نوع | ورودی مخرب کجاست | مثال |
+| --- | --- | --- |
+| **Stored** | در پایگاه داده‌ی شما؛ به هر بازدیدکننده‌ای می‌رسد | کامنتی شامل `<img src=x onerror=…>` که به همه‌ی خواننده‌ها نشان داده می‌شود |
+| **Reflected** | در خود درخواست (URL، فرم) که سرور برمی‌گرداند | `/search?q=<script>…</script>` که به شکل «نتایج برای …» Render می‌شود |
+| **DOM-based** | هیچ‌وقت به سرور نمی‌رسد؛ JavaScript سمت Client آن را می‌خواند و در DOM می‌نویسد | `el.innerHTML = location.hash.slice(1)` |
+
+### چطور اتفاق می‌افتد: Sinkهای خطرناک
+
+**Source** هر جایی است که داده‌ی غیرقابل‌اعتماد از آن می‌آید: پارامترهای URL، `location.hash`، فیلدهای فرم، پاسخ‌های API که محتوای کاربر دارند، داده‌ی `postMessage`. **Sink** جایی است که یک رشته تبدیل به کد یا Markup می‌شود:
+
+| Sink | چرا خطرناک است |
+| --- | --- |
+| `innerHTML`، `outerHTML`، `insertAdjacentHTML`، `document.write` | رشته به‌عنوان HTML Parse می‌شود و Attributeهای Event Handler اجرا می‌شوند |
+| `eval`، `new Function`، `setTimeout("code")`، `setInterval("code")` | رشته به‌عنوان JavaScript اجرا می‌شود |
+| `a.href`، `location`، `iframe.src` و `form.action` با ورودی کاربر | یک URL از نوع `javascript:` موقع دنبال شدن کد اجرا می‌کند |
+| `iframe.srcdoc` | یک سند کامل HTML |
+| `el.setAttribute("onclick", …)`، `el.setAttribute("style", …)` | کد، یا نشت داده از طریق CSS |
+| `dangerouslySetInnerHTML` در React و `v-html` در Vue | راه فرار فریم‌ورک از Escape خودکارش |
+
+```html live
+<div id="unsafe"></div>
+<div id="safe"></div>
+<pre id="log" style="font-size:13px"></pre>
+<script>
+  const log = (l) => (document.getElementById("log").textContent += l + "\n");
+  window.steal = () => log("💥 attacker code ran!");
+
+  // فرض کنید این از یک فیلد کامنت یا URL آمده
+  const comment = '<img src="x" onerror="steal()"> nice post';
+
+  document.getElementById("unsafe").innerHTML = comment;    // ✗ Parse می‌شود: onerror اجرا می‌شود
+  document.getElementById("safe").textContent = comment;    // ✓ به شکل متن ساده نمایش داده می‌شود
+  log("rendered both");                                   // اول چاپ می‌شود: خطای تصویر کمی بعد رخ می‌دهد
+</script>
+```
+
+### دفاع ۱: داده را متن حساب کنید
+
+مؤثرترین دفاع کسل‌کننده است: **هیچ‌وقت HTML را از رشته نسازید**. Element بسازید و `textContent` را ست کنید، یا بگذارید فریم‌ورک این کار را بکند. React، Vue، Angular و Svelte مقدارها را در Template به‌طور خودکار **Escape** می‌کنند: `{comment}` در JSX تبدیل به متن می‌شود، هیچ‌وقت Markup.
+
+اگر مجبورید یک رشته‌ی HTML تولید کنید (قالب ایمیل، صفحه‌ای که روی سرور Render می‌شود)، کاراکترهای خاص را متناسب با محل استفاده **Escape** کنید:
+
+```js run
+const escapeHtml = (s) =>
+  s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+
+console.log(escapeHtml(`<img src=x onerror="alert('hi')">`));
+// &lt;img src=x onerror=&quot;alert(&#39;hi&#39;)&quot;&gt;
+```
+
+Escape کردن به این بستگی دارد که مقدار **کجا** می‌رود: متن HTML، مقدار یک Attribute، یک URL، داخل `<script>` یا داخل CSS. هر کدام قواعد متفاوتی دارد؛ برای همین Escape دستی پرخطر است و Template Engineهایی که محل استفاده را می‌فهمند ترجیح داده می‌شوند.
+
+### دفاع ۲: URLها را اعتبارسنجی کنید
+
+وقتی ورودی کاربر تبدیل به **URL** می‌شود Escape کمکی نمی‌کند: `<a href="javascript:steal()">` اصلاً کاراکتر خاص HTML ندارد. URL را Parse کنید و فقط پروتکل‌های امن را بپذیرید:
+
+```js run
+function safeUrl(input, base = "https://shop.com") {
+  try {
+    const url = new URL(input, base);                   // همان Parserی که مرورگر استفاده می‌کند
+    return ["https:", "http:", "mailto:"].includes(url.protocol) ? url.href : null;
+  } catch {
+    return null;                                        // اصلاً URL نیست
+  }
+}
+
+console.log(safeUrl("https://ok.com/x"));      // https://ok.com/x
+console.log(safeUrl("/profile"));              // https://shop.com/profile
+console.log(safeUrl(" JAVASCRIPT:alert(1)"));  // null: فاصله و حروف بزرگ Parser را گول نمی‌زنند
+console.log(safeUrl("java\tscript:alert(1)")); // null: Parser تب را حذف می‌کند، مرورگر هم همین‌طور
+console.log(safeUrl("data:text/html,<b>x</b>")); // null
+console.log(new URL("//evil.com", "https://shop.com").href); // https://evil.com/: مراقب Redirectها باشید
+```
+
+<Callout type="mistake">
+اینکه خودتان `input.startsWith("javascript:")` را چک کنید. مرورگرها فاصله، تب و خط جدید داخل Scheme را نادیده می‌گیرند و Scheme به بزرگی و کوچکی حروف حساس نیست؛ پس `" JaVa\tScRiPt:…"` رد می‌شود. بگذارید اول `new URL()` نرمالش کند. همین درباره‌ی **Open Redirect** هم صدق می‌کند: `?next=//evil.com` شبیه یک مسیر است اما یک URL کامل به سایت دیگری است؛ قبل از Redirect، `url.origin` را با Origin خودتان مقایسه کنید.
+</Callout>
+
+### دفاع ۳: HTMLی را که مجبورید Render کنید پاک‌سازی کنید
+
+گاهی Render کردن HTML کاربر خود قابلیت است: یک ویرایشگر متن غنی، کامنت‌های Markdown، یک کلاینت ایمیل. آن‌وقت از یک **Sanitizer** معتبر و نگه‌داری‌شده مثل **DOMPurify** استفاده کنید که HTML را Parse می‌کند و هر چیزی را که در لیست مجاز نیست حذف می‌کند (اسکریپت، Event Handler، URLهای `javascript:`):
+
+```js
+import DOMPurify from "dompurify";
+el.innerHTML = DOMPurify.sanitize(userHtml);   // <img src=x onerror=…> تبدیل به <img src="x"> می‌شود
+```
+
+هیچ‌وقت Sanitizer خودتان را با Regular Expression ننویسید: Parse کردن HTML حالت‌های خاص خیلی زیادی دارد. مرورگرها هم دارند یک **Sanitizer API** داخلی اضافه می‌کنند (`el.setHTML(userHtml)`)؛ قبل از تکیه بر آن پشتیبانی‌اش را بررسی کنید.
+
+### دفاع ۴: Content Security Policy
+
+**CSP** یک Header پاسخ است که به مرورگر می‌گوید **کدام اسکریپت‌ها و منابع** در صفحه مجازند. حتی اگر مهاجم Markup تزریق کند، مرورگر از اجرای اسکریپتی که Policy اجازه نداده خودداری می‌کند. این تور ایمنی پشت بقیه‌ی دفاع‌های شماست.
+
+```http
+Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-r4nd0m' 'strict-dynamic';
+  object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self';
+  img-src 'self' https: data:; connect-src 'self' https://api.shop.com; upgrade-insecure-requests
+```
+
+| Directive | چه چیزی را کنترل می‌کند |
+| --- | --- |
+| `default-src` | پیش‌فرض برای هر Directive از نوع `*-src` که نوشته نشده |
+| `script-src` | اسکریپت‌ها از کجا بیایند. `'self'` یعنی Origin خودتان؛ `'nonce-…'` یعنی فقط `<script nonce="…">` با همین مقدار تصادفی؛ `'strict-dynamic'` یعنی اسکریپت‌هایی که اسکریپت‌های مورد اعتماد لود می‌کنند هم مورد اعتمادند |
+| `style-src`، `img-src`، `font-src`، `media-src` | Styleها، تصویرها، فونت‌ها، صدا و ویدیو |
+| `connect-src` | `fetch`، XHR، WebSocket و `EventSource` به کجا وصل شوند |
+| `frame-src` / `frame-ancestors` | شما چه چیزی را Embed کنید / **چه کسی شما را Embed کند** (Clickjacking، پایین‌تر) |
+| `object-src 'none'` | پلاگین‌های قدیمی (`<object>`، `<embed>`) را مسدود می‌کند |
+| `base-uri` | جلوی `<base href>` تزریق‌شده را می‌گیرد که URLهای نسبی را منحرف کند |
+| `form-action` | فرم‌ها به کجا Submit شوند |
+| `upgrade-insecure-requests` | منابع `http://` را روی `https://` لود می‌کند |
+| `report-to` | مرورگر گزارش تخلف‌ها را کجا بفرستد |
+
+- اسکریپت‌های inline و Attributeهای `on*` **مسدود** می‌شوند مگر اینکه اجازه بدهید؛ `'unsafe-inline'` اجازه می‌دهد اما بیشتر محافظت در برابر XSS را از بین می‌برد. به‌جایش از **Nonce** (یک مقدار تصادفی جدید در هر پاسخ) یا **Hash** استفاده کنید.
+- `'unsafe-eval'` اجازه‌ی `eval` و `new Function` را می‌دهد؛ از آن دوری کنید.
+- اول با **`Content-Security-Policy-Report-Only`** شروع کنید: تخلف‌ها گزارش می‌شوند اما چیزی مسدود نمی‌شود، پس می‌فهمید چه چیزهایی خراب می‌شد.
+
+### دفاع ۵: Trusted Types
+
+**Trusted Types** کاری می‌کند که Sinkهای خطرناک رشته‌ی ساده را قبول نکنند. با Directive `require-trusted-types-for 'script'` در CSP، مقداردهی یک رشته به `innerHTML` خطا پرتاب می‌کند؛ فقط مقدارهایی پذیرفته می‌شوند که یک **Policy** تعریف‌شده توسط شما (که پاک‌سازی‌شان می‌کند) ساخته باشد. این کار باعث می‌شود اشتباه‌های DOM-based XSS سهواً به Production نرسند و بازبینی‌شان راحت باشد. مرورگرهای مبتنی بر Chromium پشتیبانی‌اش می‌کنند و موتورهای دیگر هم در حال اضافه کردنش هستند.
+
+```js
+const policy = trustedTypes.createPolicy("app", {
+  createHTML: (input) => DOMPurify.sanitize(input),   // تنها راه ساختن HTML
+});
+el.innerHTML = policy.createHTML(userHtml);   // ✓
+el.innerHTML = userHtml;                      // ✗ با آن Directive در CSP، TypeError
+```
+
+## CSRF: یعنی Cross-site Request Forgery
+
+یادتان هست که Cookieها **خودکار** به هر درخواستی به سایتشان ضمیمه می‌شوند، مهم نیست چه کسی درخواست را شروع کرده ([Browser Storage](/browser/storage#cookie)). **CSRF** از همین سوءاستفاده می‌کند: یک صفحه روی `evil.com` مرورگر کاربر را وادار می‌کند درخواستی به `bank.com` بفرستد و مرورگر Cookie Session بانک را اضافه می‌کند.
+
+```html
+<!-- روی evil.com: به محض لود صفحه خودش را Submit می‌کند -->
+<form action="https://bank.com/transfer" method="POST">
+  <input type="hidden" name="to" value="attacker" />
+  <input type="hidden" name="amount" value="1000" />
+</form>
+<script>document.forms[0].submit();</script>
+```
+
+مهاجم نمی‌تواند پاسخ را **بخواند** (Same-origin Policy جلویش را می‌گیرد)، اما لازم هم ندارد: انتقال پول انجام شده. CSRF درباره‌ی **انجام کار** است، نه دزدیدن داده.
+
+| دفاع | چطور جلوی CSRF را می‌گیرد |
+| --- | --- |
+| Cookieهای `SameSite=Lax` یا `Strict` | Cookie روی `POST`، `fetch` و درخواست‌های فرعی Cross-site فرستاده نمی‌شود. `Lax` پیش‌فرض مرورگر است و همین حمله‌ی بالا را مسدود می‌کند |
+| CSRF Token | سرور یک توکن تصادفی در صفحه می‌گذارد و درخواست‌هایی که State را تغییر می‌دهند باید آن را برگردانند (در یک فیلد مخفی یا Header). `evil.com` نمی‌تواند صفحه‌ی شما را بخواند، پس توکن را نمی‌داند |
+| بررسی `Origin` / `Sec-Fetch-Site` | درخواست‌های تغییردهنده‌ای را که `Origin`شان مال شما نیست، یا `Sec-Fetch-Site`شان `cross-site` است رد کنید |
+| الزام Header سفارشی یا Body از نوع JSON | `Content-Type: application/json` یا `X-Requested-With` درخواست Cross-origin را غیرساده می‌کند؛ پس به Preflightی نیاز دارد که سرور شما تأییدش نمی‌کند |
+| هیچ‌وقت با `GET` State را تغییر ندهید | `GET` را لینک‌ها، تصویرها و Prefetch می‌فرستند؛ باید Safe باشد |
+
+<Callout type="note">
+`SameSite=Lax` همه‌چیز را پوشش نمی‌دهد: روی Navigationهای سطح بالای `GET` همچنان Cookie را می‌فرستد (پس `GET` هرگز نباید State را عوض کند)، و زیردامنه‌های **هم‌Site** (`evil.shop.com` در حال حمله به `shop.com`) هم‌Site حساب می‌شوند. دفاع چندلایه داشته باشید: `SameSite` به‌اضافه‌ی یک توکن یا بررسی `Origin` برای کارهای حساس.
+</Callout>
+
+## Clickjacking
+
+در **Clickjacking** سایت شما در یک `<iframe>` نامرئی روی یک صفحه‌ی بی‌خطرنما لود می‌شود. کاربر فکر می‌کند روی «پخش ویدیو» کلیک می‌کند، اما در واقع روی «حذف حساب» در Frame شما کلیک کرده. راه‌حل این است که اجازه ندهید سایت‌های دیگر شما را در Frame بگذارند:
+
+```http
+Content-Security-Policy: frame-ancestors 'none'
+X-Frame-Options: DENY
+```
+
+`frame-ancestors 'self'` (یا `X-Frame-Options: SAMEORIGIN`) فقط به سایت خودتان اجازه‌ی Frame کردن می‌دهد؛ می‌توانید Embedکننده‌های مورد اعتماد را هم لیست کنید. `X-Frame-Options` Header قدیمی‌تر است؛ برای مرورگرهای قدیمی هر دو را بفرستید.
+
+## HTTPS و HSTS
+
+همه‌ی چیزهای بالا فرض می‌کنند کسی نمی‌تواند ترافیک را دستکاری کند. **HTTPS** آن را رمزنگاری و احراز اصالت می‌کند تا مهاجم‌هایی که روی همان Wi‑Fi هستند نتوانند صفحه‌هایتان را بخوانند یا تغییر دهند. مرورگرها **Mixed Content** را مسدود می‌کنند: اسکریپت‌ها و منابع فعال دیگری که روی یک صفحه‌ی `https://` با `http://` لود شوند.
+
+اولین درخواست `http://` قبل از Redirect به `https://` هنوز آسیب‌پذیر است. **HSTS** این شکاف را می‌بندد:
+
+```http
+Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
+```
+
+بعد از یک بار دیدن این Header، مرورگر برای آن دامنه تا `max-age` ثانیه از `https://` استفاده می‌کند، بدون اینکه حتی یک بار `http://` را امتحان کند. با `preload` می‌توانید دامنه را به لیستی که داخل مرورگرها ساخته شده اضافه کنید تا حتی اولین بازدید هم محافظت شود.
+
+## Headerهای امنیتی دیگر
+
+| Header | کاربرد | مقدار رایج |
+| --- | --- | --- |
+| `X-Content-Type-Options` | جلوی حدس زدن («Sniff کردن») نوعی متفاوت با `Content-Type` توسط مرورگر را می‌گیرد؛ مثلاً اجرای یک `.txt` آپلودشده به‌عنوان اسکریپت | `nosniff` |
+| `Referrer-Policy` | چه مقدار از URL فعلی در `Referer` به سایت‌های دیگر فرستاده شود | `strict-origin-when-cross-origin` (پیش‌فرض مرورگر) |
+| `Permissions-Policy` | خاموش کردن قابلیت‌های قدرتمند برای صفحه و iframeهایش | `camera=(), microphone=(), geolocation=(self)` |
+| `Cross-Origin-Opener-Policy` | جدا کردن پنجره‌ی شما از Popupهای Cross-origin (بدون دسترسی `window.opener`) | `same-origin` |
+| `Cross-Origin-Embedder-Policy` | فقط منابع Cross-originی لود شوند که صریحاً اجازه داده‌اند؛ همراه COOP، **Cross-origin Isolation** را فعال می‌کند (لازم برای `SharedArrayBuffer` و تایمرهای دقیق) | `require-corp` |
+| `Cross-Origin-Resource-Policy` | چه کسی می‌تواند منابع **شما** (تصویر، اسکریپت) را Embed کند | `same-site` |
+
+## کد Third-party و زنجیره‌ی تأمین
+
+هر اسکریپتی که اضافه می‌کنید با تمام قدرت Origin شما اجرا می‌شود؛ چه یک تکه کد Analytics باشد، چه ویجت چت یا یک پکیج npm.
+
+- **Subresource Integrity** (SRI): یک فایل CDN را به یک Hash دقیق سنجاق کنید تا CDN آلوده نتواند عوضش کند:
+
+  ```html
+  <script src="https://cdn.example.com/lib@4.2.1/lib.min.js"
+          integrity="sha384-BASE64_HASH_OF_THIS_EXACT_FILE"
+          crossorigin="anonymous"></script>
+  ```
+
+  Hash را با `openssl dgst -sha384 -binary lib.min.js | openssl base64 -A` بسازید (خیلی از CDNها خودشان نشانش می‌دهند). اگر فایل دانلودشده با آن نخواند، مرورگر از اجرایش خودداری می‌کند.
+
+- Embedهای غیرقابل‌اعتماد را **Sandbox** کنید: `<iframe sandbox="allow-scripts">` به Frame یک Origin مبهم (Opaque) می‌دهد (بدون دسترسی به Cookieها یا DOM شما). فقط مجوزهای لازم را اضافه کنید (`allow-forms`، `allow-popups`، …). هیچ‌وقت `allow-scripts` و `allow-same-origin` را برای محتوای هم‌Origin با هم نگذارید: Frame می‌تواند Sandbox خودش را بردارد.
+- **وابستگی‌ها**: Lockfile را Commit نگه دارید، پکیج‌های جدید را بازبینی کنید، `npm audit` (یا معادلش در ابزارتان) را اجرا کنید و مرتب به‌روزرسانی کنید. یک آپدیت مخرب از یک پکیج، یک مسیر حمله‌ی واقعی است.
+- **postMessage**: موقع دریافت پیام از پنجره‌های دیگر همیشه `event.origin` را بررسی کنید؛ موقع فرستادن یک `targetOrigin` دقیق بدهید، هیچ‌وقت `"*"` برای داده‌ی حساس.
+
+```js
+window.addEventListener("message", (event) => {
+  if (event.origin !== "https://payments.example.com") return;   // بقیه را نادیده بگیر
+  handlePayment(event.data);
+});
+
+paymentFrame.contentWindow.postMessage({ amount: 42 }, "https://payments.example.com");
+```
+
+## Secretها جایشان در فرانت‌اند نیست
+
+هر چیزی که به مرورگر فرستاده می‌شود **عمومی** است: Bundle جاوااسکریپت، Source Mapها، متغیرهای محیطی که موقع Build جاسازی می‌شوند (`import.meta.env.VITE_*`، `NEXT_PUBLIC_*`) و درخواست‌های شبکه در DevTools. یک API Key در کد فرانت‌اند یعنی یک API Key منتشرشده.
+
+- کلیدهایی که باید محرمانه بمانند (درگاه پرداخت، APIهای هوش مصنوعی، پایگاه داده) روی سرور می‌مانند؛ فرانت‌اند بک‌اند **خودتان** را صدا می‌زند و بک‌اند سرویس سوم را.
+- کلیدهایی که از اول برای عمومی بودن طراحی شده‌اند (کلید نقشه، کلید *Publishable* در Stripe) را در داشبورد سرویس‌دهنده به دامنه یا مجوز مشخص محدود کنید.
+- مخفی کردن یک دکمه از عملیات محافظت نمی‌کند: سرور باید در هر درخواست مجوزها را بررسی کند.
+
+## اشتباهات رایج
+
+- استفاده از `innerHTML` (یا `dangerouslySetInnerHTML` و `v-html`) با داده‌ای که ممکن است ورودی کاربر داشته باشد.
+- اعتبارسنجی URL با بررسی رشته‌ای به‌جای `new URL()` به‌اضافه‌ی لیست مجاز پروتکل‌ها.
+- Redirect به پارامتر `?next=` بدون بررسی اینکه روی Origin خودتان می‌ماند.
+- فکر کردن به اینکه React، XSS را غیرممکن می‌کند: راه‌های فرار، مقدارهای `href` و HTMLی که روی سرور Render می‌شود هنوز دقت لازم دارند.
+- یک CSP با `'unsafe-inline'` و `'unsafe-eval'` همه‌جا که تقریباً جلوی هیچ چیزی را نمی‌گیرد.
+- تغییر State با `GET`، یا تکیه بر CORS برای جلوگیری از CSRF.
+- اجازه دادن به هر سایتی برای Frame کردن سایت شما.
+- گذاشتن کلیدهای محرمانه در Bundle یا در متغیرهای `VITE_*`.
+- Listenerهای `postMessage` که `event.origin` را بررسی نمی‌کنند.
+
+## سوالات مصاحبه
+
+<QA q="XSS چیست و چطور از آن جلوگیری می‌کنید؟" level="junior" n={1}>
+<Answer>
+
+XSS یعنی مهاجم JavaScript خودش را با اختیارات Origin شما در صفحه‌تان اجرا کند: می‌تواند داده بخواند، APIها را به‌جای کاربر صدا بزند و صفحه را تغییر دهد. سه شکل Stored، Reflected و DOM-based دارد. پیشگیری: داده‌ی غیرقابل‌اعتماد را به شکل متن Render کنید (`textContent`، Template فریم‌ورک‌ها که خودکار Escape می‌کنند)، از Sinkهای HTML مثل `innerHTML` و `eval` دوری کنید، موقع تولید HTML روی سرور متناسب با محل استفاده درست Escape کنید، URLها را با لیست مجاز پروتکل اعتبارسنجی کنید، HTMLهای اجتناب‌ناپذیر کاربر را با DOMPurify پاک‌سازی کنید، و یک CSP سخت‌گیر (Nonce، بدون `'unsafe-inline'`) به‌اضافه‌ی Trusted Types را به‌عنوان تور ایمنی اضافه کنید.
+
+</Answer>
+<FollowUp>
+
+آیا استفاده از React یعنی از XSS در امانید؟ کجا هنوز ممکن است رخ دهد؟
+
+</FollowUp>
+</QA>
+
+<QA q="CSRF را توضیح دهید و بگویید Cookieهای SameSite چطور کمک می‌کنند." level="mid" n={2}>
+<Answer>
+
+CSRF مرورگر قربانی را وادار می‌کند یک درخواست تغییردهنده‌ی State به سایتی بفرستد که در آن وارد شده؛ مرورگر Cookieهایش را ضمیمه می‌کند، پس درخواست احراز هویت‌شده است. مهاجم نمی‌تواند پاسخ را بخواند، اما کار انجام می‌شود. `SameSite=Lax` (پیش‌فرض) جلوی فرستادن Cookie روی POSTها و درخواست‌های فرعی Cross-site را می‌گیرد که CSRF کلاسیک را مسدود می‌کند؛ `Strict` روی Navigationهای سطح بالا هم جلویش را می‌گیرد. برای Endpointهای حساس یک CSRF Token یا بررسی `Origin` / `Sec-Fetch-Site` اضافه کنید و هیچ‌وقت با GET، State را تغییر ندهید.
+
+</Answer>
+<Mistake>
+
+گفتن اینکه CORS جلوی CSRF را می‌گیرد. یک POST ساده‌ی Cross-site همچنان فرستاده و اجرا می‌شود؛ CORS فقط پاسخ را پنهان می‌کند.
+
+</Mistake>
+</QA>
+
+<QA q="Content Security Policy چیست و یک CSP قوی چه ویژگی‌هایی دارد؟" level="mid" n={3}>
+<Answer>
+
+یک Header پاسخ که محدود می‌کند اسکریپت‌ها، Styleها، تصویرها، اتصال‌ها و Frameها از کجا بیایند؛ پس Markup تزریق‌شده نمی‌تواند اسکریپت دلخواه اجرا کند. یک Policy قوی برای اسکریپت‌ها از Nonce یا Hash (همراه `'strict-dynamic'`) استفاده می‌کند، `'unsafe-inline'` و `'unsafe-eval'` ندارد، `object-src 'none'` و `base-uri 'none'` را ست می‌کند و `frame-ancestors` را برای مقابله با Clickjacking اضافه می‌کند. اول با `Report-Only` منتشرش کنید و گزارش‌ها را زیر نظر بگیرید.
+
+</Answer>
+</QA>
+
+<QA q="Clickjacking چیست و چطور از آن جلوگیری می‌کنید؟" level="junior" n={4}>
+<Answer>
+
+مهاجم سایت شما را در یک iframe شفاف روی صفحه‌ی خودش قرار می‌دهد و کاربران را فریب می‌دهد روی دکمه‌های شما کلیک کنند. با ممنوع کردن Frame شدن جلویش را بگیرید: `Content-Security-Policy: frame-ancestors 'none'` (یا `'self'`)، به‌اضافه‌ی `X-Frame-Options: DENY` برای مرورگرهای قدیمی.
+
+</Answer>
+</QA>
+
+<QA q="یک لینک که کاربر وارد کرده به شکل <a href={url}> Render می‌شود. چه چیزی ممکن است خراب شود؟" level="mid" n={5}>
+<Answer>
+
+اگر `url` برابر `javascript:…` باشد، کلیک روی آن کد را در Origin شما اجرا می‌کند (XSS). Escape کمکی نمی‌کند چون هیچ کاراکتر HTMLی در کار نیست. با `new URL(url, location.origin)` Parseش کنید و فقط `https:`، `http:` و شاید `mailto:` را بپذیرید؛ Parser حروف بزرگ و کوچک، فاصله‌ها و تب‌هایی را که بررسی رشته‌ای را گول می‌زنند نرمال می‌کند. برای لینک‌هایی که در تب جدید باز می‌شوند، `rel="noopener"` (که در مرورگرهای امروزی برای `target="_blank"` پیش‌فرض است) جلوی کنترل صفحه‌ی شما از طریق `window.opener` را می‌گیرد.
+
+</Answer>
+</QA>
+
+<QA q="یک ویجت Third-party را چطور با امنیت Embed می‌کنید؟" level="senior" n={6}>
+<Answer>
+
+`<iframe>` را به `<script>` ترجیح دهید: اسکریپت با تمام اختیارات شما اجرا می‌شود، iframe از یک Origin دیگر نه. `sandbox` را فقط با مجوزهای لازم اضافه کنید، قابلیت‌ها را با Attribute `allow` و `Permissions-Policy` محدود کنید و از طریق `postMessage` با بررسی دقیق Origin در هر دو طرف ارتباط برقرار کنید. اگر حتماً باید اسکریپت باشد، با SRI سنجاقش کنید، Originش را صریحاً در CSP بنویسید، با `async` لودش کنید و بررسی کنید به چه داده‌هایی دسترسی دارد. از طریق گزارش‌های CSP زیر نظرش بگیرید.
+
+</Answer>
+</QA>
+
+## جمع‌بندی
+
+<Recap>
+
+- به Client هرگز اعتماد نکنید: سرور همه‌چیز را دوباره بررسی می‌کند؛ کار فرانت‌اند این است که قدرت اضافه‌ای به مهاجم ندهد.
+- Origin یعنی Scheme + Host + Port و Site یعنی Scheme + دامنه‌ی قابل ثبت. `SameSite` درباره‌ی Site است و ذخیره‌سازی و `fetch` درباره‌ی Origin.
+- XSS یعنی JavaScript مهاجم در Origin شما؛ از نوع Stored، Reflected و DOM-based. از Sinkهایی مثل `innerHTML`، `eval` و URLهای `javascript:` وارد می‌شود.
+- داده را متن Render کنید، متناسب با محل Escape کنید، URLها را با `new URL()` + لیست مجاز اعتبارسنجی کنید و HTML اجتناب‌ناپذیر را با DOMPurify پاک‌سازی کنید.
+- یک CSP سخت‌گیر (Nonce، `'strict-dynamic'`، بدون `'unsafe-inline'`) و Trusted Types تور ایمنی XSS هستند.
+- CSRF از Cookieهایی که خودکار ضمیمه می‌شوند سوءاستفاده می‌کند؛ `SameSite`، CSRF Token، بررسی `Origin` و `GET`های Safe جلویش را می‌گیرند. CORS نه.
+- با `frame-ancestors` (و `X-Frame-Options`) جلوی Clickjacking را بگیرید.
+- همه‌جا از HTTPS و HSTS استفاده کنید؛ `nosniff`، یک `Referrer-Policy` و یک `Permissions-Policy` اضافه کنید.
+- کد Third-party با اختیارات شما اجرا می‌شود: از SRI، iframe‌های Sandbox، بررسی دقیق Origin در `postMessage` و بازبینی وابستگی‌ها استفاده کنید.
+- هر چیزی در Bundle عمومی است: Secretها روی سرور می‌مانند.
+
+</Recap>
