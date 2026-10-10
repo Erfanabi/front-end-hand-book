@@ -63,7 +63,8 @@ Console
   d.click('text') / d.type(sel, v) / d.submit() / d.text() / d.logs (same-origin iframe). Delete the json after.
   (Focus checks are unreliable while hidden: no focus events fire.)
   ✅ react/patterns (fa+en, 7 live demos; includes an auth-guard section that links JWT details to architecture).
-  Next: react/advanced.
+  ✅ react/advanced (fa+en, 3 live demos; transition keystroke ~33ms vs ~245ms blocking, staged Suspense reveal verified).
+  Next: react/interview-questions (50 Qs).
 - JWT (user request 2026-10-10): cover JWT in the post-React parts — full treatment in
   architecture/auth-security-performance (structure header.payload.signature, base64url, signing HS256 vs RS256,
   claims exp/iat/nbf/aud/iss, verification, access + refresh tokens and rotation, where to store: httpOnly

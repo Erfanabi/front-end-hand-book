@@ -427,6 +427,10 @@ const descriptions: Record<string, Localized> = {
     fa: 'Composition و Slotها، Controlled و Uncontrolled، Componentهای قابل کنترل، Compound Componentها، Render Props و HOC در برابر Custom Hook، Error Boundaryها، Portalها و محافظ احراز هویت.',
     en: 'Composition and slots, controlled vs uncontrolled, controllable components, compound components, render props and HOCs vs custom hooks, error boundaries, portals and auth guards.',
   },
+  'react/advanced': {
+    fa: 'Render همزمان، useTransition و useDeferredValue، Suspense و مرزهای تودرتو، CSR/SSR/SSG/ISR، Hydration و Mismatch، Streaming و Selective Hydration، Server Components، RSC Payload و Server Functionها.',
+    en: 'Concurrent rendering, useTransition and useDeferredValue, Suspense and nested boundaries, CSR/SSR/SSG/ISR, hydration and mismatches, streaming and selective hydration, Server Components, the RSC payload and Server Functions.',
+  },
 }
 
 for (const part of parts) {
