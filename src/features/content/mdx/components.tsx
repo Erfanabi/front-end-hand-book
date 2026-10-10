@@ -11,6 +11,7 @@ import {
   LivePreview,
   PositionPlayground,
   Predict,
+  ReactLive,
 } from '@/features/playground'
 import { Api } from './Api'
 import { Callout } from './Callout'
@@ -82,6 +83,7 @@ export const mdxComponents: MDXComponents = {
   CodeRunner: bare(CodeRunner),
   Predict: bare(Predict),
   LivePreview,
+  ReactLive,
   FlexboxPlayground,
   GridPlayground,
   PositionPlayground,

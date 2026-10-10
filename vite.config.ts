@@ -10,6 +10,7 @@ import { paraglideVitePlugin } from '@inlang/paraglide-js'
 import type { ShikiTransformer } from 'shiki'
 import remarkInteractive from './build/remark-interactive.ts'
 import { searchIndexPlugin } from './build/search-index-plugin.ts'
+import { reactRuntimePlugin } from './build/react-runtime-plugin.ts'
 
 const src = fileURLToPath(new URL('./src', import.meta.url))
 
@@ -50,6 +51,7 @@ export default defineConfig({
       emitTsDeclarations: true,
     }),
     searchIndexPlugin(`${src}/content`),
+    reactRuntimePlugin(),
   ],
   resolve: {
     alias: { '@': src },

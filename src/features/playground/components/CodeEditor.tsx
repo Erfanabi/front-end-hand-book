@@ -9,6 +9,8 @@ import { useTheme } from '@/features/theme'
 /** Loaded lazily — CodeMirror is only downloaded when a reader starts editing. */
 const languages = {
   js: () => javascript({ jsx: true, typescript: false }),
+  jsx: () => javascript({ jsx: true, typescript: false }),
+  tsx: () => javascript({ jsx: true, typescript: true }),
   html: () => html(),
   css: () => css(),
 }

@@ -4,6 +4,7 @@ import { cn } from '@/shared/lib/cn'
 const fileBadge: Record<string, { label: string; className: string }> = {
   js: { label: 'JS', className: 'bg-[#f7df1e] text-[#1a1a1a]' },
   html: { label: '<>', className: 'bg-[#e34c26] text-white' },
+  jsx: { label: '⚛', className: 'bg-[#20232a] text-[#61dafb]' },
   css: { label: '#', className: 'bg-[#2965f1] text-white' },
   quiz: { label: '?', className: 'bg-strong text-strong-ink' },
   ui: { label: '◧', className: 'bg-accent text-accent-ink' },

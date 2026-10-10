@@ -88,6 +88,7 @@ from the same outline. Do not translate sentence by sentence.
 | ```` ```js run ```` (`sloppy` flag for non-strict) | editable runnable JS, console captured |
 | ```` ```js predict ```` + ```` ```output ```` | guess-the-output quiz |
 | ```` ```html live ```` | editable HTML/CSS preview |
+| ```` ```jsx live ```` / ```` ```tsx live ```` | editable React demo: `export default` a component (rendered in `<StrictMode>`; add `nostrict` to opt out). Imports: `react`, `react-dom`, `zustand`, `zustand/middleware`, `@tanstack/react-query`. React dev build, so dev warnings and StrictMode double effects appear in its console. Use `console.log` to show lifecycle order. |
 | ```` ```mermaid ```` | zoomable diagram |
 | ```` ```text ```` | box-drawing diagrams (keep columns aligned, LTR) |
 | `<Api>` | API anatomy card |

@@ -119,5 +119,7 @@
   "api_mutates_yes": "Mutates the original",
   "api_mutates_no": "Does not mutate",
   "recap_title": "Chapter recap",
-  "code_copy_label": "Copy code"
+  "code_copy_label": "Copy code",
+  "live_reload": "Reload",
+  "live_react_title": "Live React"
 }

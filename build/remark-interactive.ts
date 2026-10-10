@@ -10,6 +10,7 @@ import type { MdxJsxAttribute, MdxJsxFlowElement } from 'mdast-util-mdx-jsx'
  *   ```js run sloppy          → same, but executed as a classic (non-strict) script
  *   ```js predict  + ```output → <Predict code="…" output="…">highlighted code</Predict>
  *   ```html live              → <LivePreview code="…" />
+ *   ```jsx live / tsx live    → <ReactLive code="…" lang="jsx|tsx" />  (`nostrict` skips <StrictMode>)
  *
  * The original code node is kept as a child, so Shiki still highlights it at
  * build time and no editor is needed until the reader clicks "Edit".
@@ -71,6 +72,12 @@ function transform(parent: Parent) {
     if (hasFlag(node, 'run')) {
       const clean: Code = { ...node, meta: null }
       out.push(element('CodeRunner', [attr('code', node.value), ...modeAttr(node)], [clean]))
+      continue
+    }
+
+    if ((node.lang === 'jsx' || node.lang === 'tsx') && hasFlag(node, 'live')) {
+      const strict = hasFlag(node, 'nostrict') ? [attr('strict', 'off')] : []
+      out.push(element('ReactLive', [attr('code', node.value), attr('lang', node.lang), ...strict]))
       continue
     }
 

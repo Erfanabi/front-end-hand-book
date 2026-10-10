@@ -119,5 +119,7 @@
   "api_mutates_yes": "آرایه/شیء اصلی را تغییر می‌دهد",
   "api_mutates_no": "اصلی را تغییر نمی‌دهد",
   "recap_title": "جمع‌بندی این فصل",
-  "code_copy_label": "کپی کد"
+  "code_copy_label": "کپی کد",
+  "live_reload": "اجرای دوباره",
+  "live_react_title": "React زنده"
 }
