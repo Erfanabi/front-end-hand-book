@@ -419,6 +419,10 @@ const descriptions: Record<string, Localized> = {
     fa: 'اندازه‌گیری با Profiler، پایین بردن State و ترفند children، memo، useMemo و useCallback، React Compiler، Context و Performance، Virtualization، Code Splitting با lazy و Activity.',
     en: 'Measuring with the Profiler, moving state down and the children trick, memo, useMemo and useCallback, React Compiler, context performance, virtualization, code splitting with lazy, and Activity.',
   },
+  'react/react-19': {
+    fa: 'Actionها و Transitionهای Async، useActionState، Actionهای فرم و useFormStatus، useOptimistic، use، ref به‌عنوان prop و Ref روی Fragment، Metadata سند، خطاهای بهتر، تازه‌های 19.1 تا 19.3 و ViewTransition.',
+    en: 'Actions and async transitions, useActionState, form actions and useFormStatus, useOptimistic, use, ref as a prop and Fragment refs, document metadata, better errors, what 19.1–19.3 added, and ViewTransition.',
+  },
 }
 
 for (const part of parts) {

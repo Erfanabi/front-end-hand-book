@@ -1,0 +1,766 @@
+## What React 19 changed, and why
+
+Before React 19, every form in a React app looked the same: a `useState` for each field, one for `isLoading`, one for `error`, an `onSubmit` that calls `e.preventDefault()`, sets loading, awaits the API, catches errors, resets loading, and maybe updates the UI optimistically and rolls it back. Every team wrote this boilerplate, and every team got some of it wrong (double submits, stale errors, races).
+
+React 19 makes **async work a first-class concept**. A function that does async work inside a transition is now an **Action**, and React tracks its pending state, errors and optimistic updates for you. Around that core, React 19 and its minor releases cleaned up long-standing annoyances (`forwardRef`, `<Context.Provider>`, managing `<title>`), and added tools for keeping UI alive and animating it.
+
+| Version | Released | Headline features |
+| --- | --- | --- |
+| **19.0** | Dec 2024 | Actions, `useActionState`, `useOptimistic`, `useFormStatus`, `<form action>`, `use`, `ref` as a prop, ref cleanup, `<Context>` as provider, document metadata, stylesheet and script support, resource preloading, better errors, Server Components and Server Functions stable |
+| **19.1** | Mar 2025 | `captureOwnerStack`, Owner Stacks in dev errors, Suspense fixes |
+| **19.2** | Oct 2025 | `<Activity>`, `useEffectEvent`, `cacheSignal`, Performance tracks in Chrome DevTools, partial pre-rendering (`prerender` + `resume`), batched Suspense reveals in SSR |
+| **19.3** | (installed here) | `<ViewTransition>`, `addTransitionType`, refs on `<Fragment>`, `browser()` for client-only subtrees |
+
+This chapter goes through each feature: the problem, the API, a demo, and the gotchas. Some features have their own home: `useEffectEvent` is in [Effects](/react/effects), `<Activity>` and React Compiler in [Performance](/react/performance), Server Components and streaming in [Concurrent React, Server Components & SSR](/react/advanced).
+
+## Actions
+
+### The problem: async state by hand
+
+```jsx
+// Before React 19: four pieces of state for one button
+const [name, setName] = useState('')
+const [error, setError] = useState(null)
+const [isPending, setIsPending] = useState(false)
+
+async function handleSubmit() {
+  setIsPending(true)
+  const error = await updateName(name)
+  setIsPending(false)
+  if (error) {
+    setError(error)
+    return
+  }
+  redirect('/profile')
+}
+```
+
+### Async transitions
+
+In React 18, [`startTransition`](/react/advanced) accepted only synchronous functions. In React 19 the function can be **async**. React keeps `isPending` true from the moment the transition starts until the async function finishes **and** the resulting state updates have been rendered.
+
+A function passed to a transition is called an **Action**. By convention, props that accept one are named `action` or end in `Action` (`submitAction`, `onSaveAction`).
+
+```jsx live
+import { useState, useTransition } from 'react'
+
+// Fake API: fails for an empty name, takes 1s
+const updateName = (name) =>
+  new Promise((resolve) => setTimeout(() => resolve(name.trim() ? null : 'Name is required'), 1000))
+
+export default function App() {
+  const [name, setName] = useState('Ada')
+  const [saved, setSaved] = useState('Ada')
+  const [error, setError] = useState(null)
+  const [isPending, startTransition] = useTransition()
+
+  function handleSave() {
+    startTransition(async () => {
+      const err = await updateName(name)
+      // State updates after an await must be wrapped in startTransition again (see below)
+      startTransition(() => {
+        if (err) setError(err)
+        else {
+          setError(null)
+          setSaved(name)
+        }
+      })
+    })
+  }
+
+  return (
+    <>
+      <input value={name} onChange={(e) => setName(e.target.value)} />{' '}
+      <button onClick={handleSave} disabled={isPending}>
+        {isPending ? 'Saving…' : 'Save'}
+      </button>
+      {error && <p style={{ color: 'crimson' }}>{error}</p>}
+      <p>Saved name: {saved}</p>
+    </>
+  )
+}
+```
+
+<Callout type="warning">
+**Updates after `await` lose the transition context.** JavaScript has no way (yet) to carry "we are inside a transition" across an `await`, so state updates after it are treated as urgent. Wrap them in another `startTransition(() => …)`, as above. This is a known limitation that will go away when the platform supports async context.
+</Callout>
+
+What an Action gives you:
+
+- **Pending state**: `isPending` starts true immediately and ends when the final updates commit.
+- **Non-blocking UI**: the transition is low priority, so typing stays responsive.
+- **Error handling**: an error thrown inside an Action used by a form or `useActionState` shows the nearest [error boundary](/react/patterns); the hooks below also let you return errors as state.
+- **Optimistic updates** with `useOptimistic`, rolled back automatically when the Action ends.
+- **Forms**: `<form action={fn}>` runs `fn` as an Action.
+
+## useActionState
+
+Most Actions follow the same shape: take some input, call the server, store the result (or the error). **`useActionState`** packages that pattern.
+
+<Api name="useActionState()" sig="const [state, dispatchAction, isPending] = useActionState(action, initialState, permalink?)" returns="the current state, a function that runs the Action, and whether it's running." mutates="no">
+
+- `action(previousState, payload)`: your function, sync or async. It receives the last state (initially `initialState`) and whatever you pass to `dispatchAction` (for a form, the `FormData`). **Its return value becomes the new state.**
+- `initialState`: the state before the Action has ever run. Any serializable value.
+- `permalink` (optional): a URL string for progressive enhancement with Server Components. If the form is submitted before JavaScript loads, the browser navigates to this URL.
+- `state`: `initialState` at first, then the value returned by the latest Action.
+- `dispatchAction(payload)`: queues the Action. Calls are **queued in order**: each one receives the state returned by the previous one. Pass it to `<form action>` or `<button formAction>`, or call it inside `startTransition`. Calling it outside a transition makes React warn, because `isPending` couldn't be tracked.
+- `isPending`: true while any queued Action is running.
+
+</Api>
+
+```jsx live
+import { useActionState } from 'react'
+
+const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+
+async function addToCart(prevState, formData) {
+  await wait(800) // pretend to call the server
+  const qty = Number(formData.get('qty'))
+  if (!qty || qty < 1) return { ...prevState, error: 'Quantity must be at least 1' }
+  if (prevState.count + qty > 5) return { ...prevState, error: 'Max 5 items in the cart' }
+  return { count: prevState.count + qty, error: null } // becomes the new state
+}
+
+export default function App() {
+  const [state, formAction, isPending] = useActionState(addToCart, { count: 0, error: null })
+
+  return (
+    <form action={formAction}>
+      <input name="qty" type="number" defaultValue={1} style={{ width: 60 }} />{' '}
+      <button disabled={isPending}>{isPending ? 'Adding…' : 'Add to cart'}</button>
+      <p>Items in cart: {state.count}</p>
+      {state.error && <p style={{ color: 'crimson' }}>{state.error}</p>}
+    </form>
+  )
+}
+```
+
+Notice what's missing: no `onSubmit`, no `preventDefault`, no `useState` for loading or error. The returned object *is* the state.
+
+<Callout type="note">
+`useActionState` was called `ReactDOM.useFormState` in the React 19 canary releases. `useFormState` still exists in `react-dom` for compatibility but is deprecated: use `useActionState` from `react`.
+</Callout>
+
+## Form actions
+
+### `<form action={function}>`
+
+In React 19 the `action` prop of `<form>` (and `formAction` on `<button>` and `<input type="submit">`) can be a **function**. When the form is submitted, React:
+
+<Steps>
+<Step title="Prevents the browser's default submission">
+No page reload, no `e.preventDefault()` needed.
+</Step>
+<Step title="Collects the fields into a FormData">
+Every field with a `name` attribute is included ([FormData](/html/forms)).
+</Step>
+<Step title="Runs your function as an Action inside a transition">
+`useFormStatus` reports it as pending, and errors go to the nearest error boundary.
+</Step>
+<Step title="Resets the form after the Action succeeds">
+Uncontrolled fields go back to their `defaultValue`. Controlled fields (with `value`) are yours to reset.
+</Step>
+</Steps>
+
+```jsx live
+import { useState } from 'react'
+
+export default function App() {
+  const [todos, setTodos] = useState([])
+
+  // Receives the FormData; may be async
+  async function addTodo(formData) {
+    const text = formData.get('text')
+    await new Promise((r) => setTimeout(r, 300))
+    setTodos((t) => [...t, text])
+  }
+
+  return (
+    <>
+      <form action={addTodo}>
+        <input name="text" placeholder="new todo" required />
+        <button>Add</button>
+      </form>
+      <ul>{todos.map((t, i) => <li key={i}>{t}</li>)}</ul>
+    </>
+  )
+}
+```
+
+After each submit the input is emptied automatically. To reset a form from code (for example after an Action that ran without a form submission), call `requestFormReset(formElement)` from `react-dom` inside a transition.
+
+Different buttons can run different Actions in the same form with `formAction`:
+
+```jsx
+<form action={saveDraft}>
+  <textarea name="body" />
+  <button>Save draft</button>
+  <button formAction={publish}>Publish</button> {/* overrides the form's action */}
+</form>
+```
+
+### useFormStatus
+
+A submit button often lives in a reusable component (a design-system `<SubmitButton>`). To show "Saving…" it needs the status of the form it's in, without the form passing props down.
+
+<Api name="useFormStatus()" sig="const { pending, data, method, action } = useFormStatus()" returns="the status of the parent `<form>`'s last submission." mutates="no">
+
+- Imported from **`react-dom`**, not `react`.
+- It reads the status of the **closest parent `<form>`**, like a context provided by the form. Called in the same component that renders the `<form>`, it returns `pending: false` forever: it must be called in a component rendered *inside* the form.
+- `pending`: `true` while the form's Action runs.
+- `data`: the `FormData` being submitted, or `null` when not pending. Useful for showing what's being sent.
+- `method`: `'get'` or `'post'`, from the form's `method` attribute.
+- `action`: the function (or URL) passed to the form's `action` prop, or `null`.
+
+</Api>
+
+```jsx live
+import { useState } from 'react'
+import { useFormStatus } from 'react-dom'
+
+function SubmitButton() {
+  // Reads the status of the <form> this button is rendered in
+  const { pending, data } = useFormStatus()
+  return (
+    <button disabled={pending}>
+      {pending ? `Subscribing ${data.get('email')}…` : 'Subscribe'}
+    </button>
+  )
+}
+
+export default function App() {
+  const [list, setList] = useState([])
+  async function subscribe(formData) {
+    await new Promise((r) => setTimeout(r, 1000))
+    setList((l) => [...l, formData.get('email')])
+  }
+  return (
+    <form action={subscribe}>
+      <input name="email" type="email" placeholder="you@example.com" required />{' '}
+      <SubmitButton />
+      <p>Subscribed: {list.join(', ') || 'nobody yet'}</p>
+    </form>
+  )
+}
+```
+
+## useOptimistic
+
+Users expect a "like" or a sent message to appear instantly, not after a round trip. An **optimistic update** shows the expected result immediately, then replaces it with the real result (or reverts it on failure).
+
+<Api name="useOptimistic()" sig="const [optimisticState, addOptimistic] = useOptimistic(state, updateFn?)" returns="the state to render and a function to apply a temporary update." mutates="no">
+
+- `state`: the real ("confirmed") value, usually from props or `useState`. When no Action is pending, `optimisticState` equals `state`.
+- `updateFn(currentState, optimisticValue)` (optional): a **pure** function that returns the optimistic state, like a reducer. Without it, `addOptimistic(value)` simply replaces the state with `value` (or calls it, if it's a function).
+- `addOptimistic(optimisticValue)`: applies a temporary update. It must be called **inside an Action** (a transition, a form action, or `useActionState`).
+- When the Action finishes, React throws the optimistic updates away and renders `optimisticState` from the latest `state` again. If you updated `state` in the Action, the user sees the real value; if the Action failed and you didn't, the optimistic value disappears: **automatic rollback**.
+
+</Api>
+
+```jsx live
+import { useOptimistic, useState } from 'react'
+
+let attempt = 0
+async function sendToServer(text) {
+  await new Promise((r) => setTimeout(r, 1200))
+  if (++attempt % 3 === 0) throw new Error('network') // every 3rd message fails
+  return text
+}
+
+export default function App() {
+  const [messages, setMessages] = useState([{ text: 'Hello!' }])
+  const [optimisticMessages, addOptimistic] = useOptimistic(
+    messages,
+    (current, text) => [...current, { text, sending: true }],
+  )
+
+  async function send(formData) {
+    const text = formData.get('msg')
+    addOptimistic(text) // shows immediately, inside the form action
+    try {
+      const saved = await sendToServer(text)
+      setMessages((m) => [...m, { text: saved }]) // the real value replaces the optimistic one
+    } catch {
+      console.log(`"${text}" failed: the optimistic message is rolled back`)
+    }
+  }
+
+  return (
+    <>
+      <ul>
+        {optimisticMessages.map((m, i) => (
+          <li key={i} style={{ opacity: m.sending ? 0.5 : 1 }}>
+            {m.text} {m.sending && <small>(sending…)</small>}
+          </li>
+        ))}
+      </ul>
+      <form action={send}>
+        <input name="msg" placeholder="message" required /> <button>Send</button>
+      </form>
+    </>
+  )
+}
+```
+
+Send three messages. Each appears instantly, faded. When the Actions finish, the first two become solid and the third vanishes: the "server" failed, nothing updated `messages`, so the optimistic copy is simply dropped. (Optimistic values of overlapping Actions are kept until all of them finish.)
+
+## use
+
+**`use`** reads the value of a **resource** during render. In React 19 the resource can be a **Promise** or a **Context**.
+
+<Api name="use()" sig="const value = use(resource)" returns="the resolved value of the Promise, or the current context value." mutates="no">
+
+- `resource`: a Promise, or a context object created with `createContext`.
+- **Promise**: if it's resolved, `use` returns the value. If it's pending, the component **suspends**: the nearest `<Suspense>` shows its fallback, and React renders again when the Promise settles. If it rejects, the error goes to the nearest error boundary.
+- **Context**: works like `useContext`, but can be called **conditionally**.
+- Unlike every other hook, `use` **may be called inside `if` statements and loops**. It still must be called from a component or a hook, and not inside a `try`/`catch` block (use an error boundary instead).
+
+</Api>
+
+### Reading a Promise
+
+The Promise must be **created outside the render** that reads it: in a parent, an event handler, a cache, or a Server Component. A Promise created during render is a new Promise every render, so the component suspends forever.
+
+```jsx live
+import { Suspense, use, useState } from 'react'
+
+function fetchUser(id) {
+  return new Promise((resolve) =>
+    setTimeout(() => resolve({ id, name: ['Ada', 'Alan', 'Grace'][id % 3] }), 1000),
+  )
+}
+
+function UserCard({ userPromise }) {
+  const user = use(userPromise) // suspends until the Promise resolves
+  return <p>👤 #{user.id}: {user.name}</p>
+}
+
+export default function App() {
+  const [id, setId] = useState(1)
+  // Created in state/event handlers, NOT during render: the same Promise across renders
+  const [userPromise, setUserPromise] = useState(() => fetchUser(1))
+
+  function next() {
+    const nextId = id + 1
+    setId(nextId)
+    setUserPromise(fetchUser(nextId))
+  }
+
+  return (
+    <>
+      <button onClick={next}>Load next user</button>
+      <Suspense fallback={<p>Loading user…</p>}>
+        <UserCard userPromise={userPromise} />
+      </Suspense>
+    </>
+  )
+}
+```
+
+Clicking the button shows the fallback again, because the new Promise is pending. Wrapping `setUserPromise` in `startTransition` would keep the previous user on screen until the next one is ready ([transitions and Suspense](/react/advanced)).
+
+<Callout type="mistake">
+**Creating the Promise inside the component that calls `use`.**
+
+```jsx
+function UserCard({ id }) {
+  const user = use(fetchUser(id)) // ❌ new Promise every render → suspends forever
+}
+```
+
+Each render creates a new pending Promise, so the component never gets a resolved one (React warns: "A component was suspended by an uncached promise"). Create it in a parent, cache it by key, or let a framework or data library provide it.
+</Callout>
+
+This is the building block that frameworks and libraries use for data fetching with Suspense. In a Server Component setup, a server component can start a fetch and pass the Promise to a client component that reads it with `use`, so the data starts loading before the client code even runs ([Server Components](/react/advanced)).
+
+### Reading context conditionally
+
+```jsx
+function Heading({ children, plain }) {
+  if (plain) return <h1>{children}</h1>
+  const theme = use(ThemeContext) // ✅ allowed after an early return, unlike useContext
+  return <h1 style={{ color: theme.color }}>{children}</h1>
+}
+```
+
+## Refs in React 19
+
+### ref is a regular prop
+
+Function components can now receive `ref` as a normal prop. `forwardRef` is no longer needed (it still works, and will be deprecated in a future version; a codemod converts it).
+
+```jsx live
+import { useRef } from 'react'
+
+// React 19: ref arrives like any other prop
+function TextInput({ ref, label }) {
+  return (
+    <label>
+      {label} <input ref={ref} />
+    </label>
+  )
+}
+
+export default function App() {
+  const inputRef = useRef(null)
+  return (
+    <>
+      <TextInput ref={inputRef} label="Name:" />{' '}
+      <button onClick={() => inputRef.current.focus()}>Focus the input</button>
+    </>
+  )
+}
+```
+
+Class components are different: for them `ref` still points to the class instance and isn't passed as a prop.
+
+### Cleanup functions for ref callbacks
+
+A [ref callback](/react/hooks) can now **return a cleanup function**. React calls it when the element is removed (or the callback changes), instead of calling the callback with `null`. This makes ref callbacks a natural place to attach observers.
+
+```jsx live
+import { useState } from 'react'
+
+function Box() {
+  return (
+    <div
+      ref={(node) => {
+        // Setup: runs when the node is attached
+        const ro = new ResizeObserver(([entry]) => console.log('width:', Math.round(entry.contentRect.width)))
+        ro.observe(node)
+        console.log('observer attached')
+        // Cleanup: runs when the node is detached
+        return () => {
+          ro.disconnect()
+          console.log('observer disconnected')
+        }
+      }}
+      style={{ resize: 'horizontal', overflow: 'auto', border: '2px dashed #888', width: 160, padding: 8 }}
+    >
+      drag my corner
+    </div>
+  )
+}
+
+export default function App() {
+  const [show, setShow] = useState(true)
+  return (
+    <>
+      <button onClick={() => setShow(!show)}>{show ? 'Remove' : 'Add'} box</button>
+      {show && <Box />}
+    </>
+  )
+}
+```
+
+<Callout type="mistake">
+**Implicit returns in ref callbacks now mean something.** `ref={(el) => (inputRef = el)}` returns the element, and TypeScript rejects it because the return value must be a cleanup function or nothing. Use a block body: `ref={(el) => { inputRef = el }}`. The `no-implicit-ref-callback-return` codemod fixes these.
+</Callout>
+
+### Refs on Fragments (19.3)
+
+A `<Fragment>` renders no DOM node, so before 19.3 you couldn't get a ref to "this group of children" without adding a wrapper `<div>`. Now `<Fragment ref={ref}>` gives you a **FragmentInstance** that acts on the fragment's top-level DOM children: `focus()` (focus the first focusable descendant), `focusLast()`, `blur()`, `addEventListener()`/`removeEventListener()` on every child, `observeUsing(observer)` to attach an `IntersectionObserver` or `ResizeObserver` to every child, `getClientRects()` and `scrollIntoView()`.
+
+```jsx live
+import { Fragment, useRef } from 'react'
+
+export default function App() {
+  const groupRef = useRef(null)
+  return (
+    <>
+      <Fragment ref={groupRef}>
+        <input placeholder="first" /> <input placeholder="second" />
+      </Fragment>
+      <p>
+        <button onClick={() => groupRef.current.focus()}>focus first</button>{' '}
+        <button onClick={() => groupRef.current.focusLast()}>focus last</button>
+      </p>
+    </>
+  )
+}
+```
+
+## `<Context>` as a provider
+
+You can render the context object itself instead of `<Context.Provider>`:
+
+```jsx
+const ThemeContext = createContext('light')
+
+function App({ children }) {
+  return <ThemeContext value="dark">{children}</ThemeContext> // React 19
+  // before: <ThemeContext.Provider value="dark">
+}
+```
+
+`<Context.Provider>` still works and will be deprecated later.
+
+## Document metadata, stylesheets and scripts
+
+### `<title>`, `<meta>` and `<link>` anywhere
+
+Rendering `<title>`, `<meta>` or `<link>` anywhere in the tree now **hoists** them into `<head>`. A blog post component can declare its own title and description, and it works with client rendering, streaming SSR and Server Components. Before this, you needed a library like `react-helmet`.
+
+```jsx live
+import { useState } from 'react'
+
+function Post({ title }) {
+  return (
+    <article>
+      {/* hoisted into <head> automatically */}
+      <title>{`${title} · My blog`}</title>
+      <meta name="description" content={`A post about ${title}`} />
+      <h2>{title}</h2>
+    </article>
+  )
+}
+
+export default function App() {
+  const [title, setTitle] = useState('React 19')
+  return (
+    <>
+      <button onClick={() => setTitle(title === 'React 19' ? 'Actions' : 'React 19')}>switch post</button>
+      <button onClick={() => console.log('document.title =', document.title, '| <title> in head:', !!document.head.querySelector('title'))}>
+        log head
+      </button>
+      <Post title={title} />
+    </>
+  )
+}
+```
+
+The title must be a **single string**: `<title>{a} · {b}</title>` passes an array of children and React warns. Use a template literal.
+
+### Stylesheets with precedence
+
+`<link rel="stylesheet" href="…" precedence="default" />` rendered inside a component is deduplicated, inserted in `<head>` ordered by `precedence`, and React **waits for it to load** before revealing the content that depends on it (Suspense-aware). A component can now declare the CSS it needs right next to its markup.
+
+### Async scripts
+
+`<script async src="…" />` rendered anywhere is deduplicated: if ten components render the same script, it loads once.
+
+### Resource preloading APIs
+
+`react-dom` exports functions that tell the browser about resources early, so they load in parallel with your code:
+
+| Function | Does | Typical use |
+| --- | --- | --- |
+| `prefetchDNS(href)` | DNS lookup for a host you might use | third-party domains |
+| `preconnect(href)` | DNS + TCP + TLS to a host you will use | API or CDN origins |
+| `preload(href, { as })` | download a resource you'll need soon | fonts, hero images, stylesheets |
+| `preloadModule(href)` | download an ES module | a route's chunk |
+| `preinit(href, { as })` | download **and execute/apply** a script or stylesheet | critical scripts and CSS |
+| `preinitModule(href)` | download and evaluate an ES module | |
+
+They can be called during render or in event handlers (for example `preload` on hover), and React deduplicates them and emits the matching `<link>` tags (see [resource hints](/html/performance)).
+
+## Better errors
+
+### Error reporting options on the root
+
+React 19 reports each error **once** (React 18 logged errors several times) and lets you handle them centrally:
+
+```jsx
+createRoot(container, {
+  // An error caught by an error boundary
+  onCaughtError: (error, errorInfo) => report(error, errorInfo.componentStack),
+  // An error not caught by any boundary (the app unmounts)
+  onUncaughtError: (error, errorInfo) => report(error, errorInfo.componentStack),
+  // An error React recovered from automatically (for example a hydration mismatch it fixed by client rendering)
+  onRecoverableError: (error, errorInfo) => report(error, errorInfo.componentStack),
+})
+```
+
+### Hydration mismatch diffs
+
+When server HTML doesn't match the client render, React 19 logs **one** error with a diff of the mismatching text or attributes and the usual causes (`Date.now()`, `typeof window` checks, browser extensions, invalid HTML nesting), instead of several unhelpful warnings. It also skips unexpected tags inserted by browser extensions or third-party scripts in `<head>` and `<body>`.
+
+### Owner stacks (19.1)
+
+An **owner stack** shows *which components created* the element that failed, not just which ones contain it, so you can find the code responsible. Development errors include it automatically, and `captureOwnerStack()` (development builds only, returns `null` in production) lets you read it in your own error handling.
+
+## React 19.2 highlights
+
+- **`<Activity>`**: hide a subtree while keeping its state, with Effects cleaned up ([Performance](/react/performance)).
+- **`useEffectEvent`**: read the latest props and state in an Effect without making them dependencies ([Effects](/react/effects)).
+- **`cacheSignal`**: for Server Components; an `AbortSignal` that aborts when the `cache()` lifetime ends, so fetches started for a render can be cancelled.
+- **Performance tracks**: Chrome DevTools' Performance panel shows React's "Scheduler" track (which priority lane is working, blocking vs transition) and a "Components" track (which components rendered and their Effects).
+- **Partial pre-rendering**: `prerender()` renders the static parts of a page ahead of time (for a CDN) and returns a postponed state; later `resume()` streams in the dynamic parts.
+- **Batched Suspense reveals in SSR**: streamed Suspense boundaries that resolve close together are revealed together, matching client behavior and allowing view transitions.
+- **`eslint-plugin-react-hooks` v6+**: flat config by default, and the React Compiler rules in the `recommended` preset.
+
+## View Transitions (19.3)
+
+The browser's **View Transition API** animates between two DOM states: it snapshots the old state, applies the change, and cross-fades (or animates with CSS you write) to the new one. Calling `document.startViewTransition` yourself doesn't fit React, because React decides when the DOM changes. **`<ViewTransition>`** lets React do it.
+
+<Api name="<ViewTransition>" sig="<ViewTransition name? enter? exit? update? share? default?>…</ViewTransition>" returns="its children." mutates="no">
+
+- It animates only for updates inside a **Transition**: `startTransition`, `useDeferredValue`, an Action, or a `<Suspense>` boundary revealing its content. Urgent updates (a plain `setState` in a click) commit immediately without animation.
+- `name`: a `view-transition-name`. Default `"auto"` (React generates one). Give two `<ViewTransition>`s in different places the **same name** to animate a "shared element" from one to the other (a thumbnail growing into a detail view).
+- `enter` / `exit`: a CSS `view-transition-class` used when this boundary is inserted / removed in the transition.
+- `update`: the class used when its content changed or moved.
+- `share`: the class used when it's a shared-element transition (same `name` leaving elsewhere).
+- `default`: the class used when no more specific prop applies. The special value `"none"` disables the animation for that case.
+- Each class prop also accepts an object keyed by **transition type**, for example `{ 'nav-forward': 'slide-left', 'nav-back': 'slide-right', default: 'auto' }`.
+- `onEnter`, `onExit`, `onUpdate`, `onShare`: callbacks `(instance, types) => cleanup?` for animating with JavaScript (the Web Animations API).
+
+</Api>
+
+`addTransitionType(type)` (called inside `startTransition`) labels the current transition, so the same `<ViewTransition>` can animate differently for "forward" and "back" navigation.
+
+```jsx live
+import { startTransition, useState, ViewTransition } from 'react'
+
+const css = `
+  ::view-transition-group(*) { animation-duration: 400ms; }
+`
+
+export default function App() {
+  const [items, setItems] = useState(['🍎 apple', '🍌 banana', '🍒 cherry', '🥝 kiwi'])
+
+  function shuffle() {
+    // Inside a Transition, so <ViewTransition> animates the reorder
+    startTransition(() => setItems((xs) => [...xs].sort(() => Math.random() - 0.5)))
+  }
+
+  return (
+    <>
+      <style>{css}</style>
+      <button onClick={shuffle}>Shuffle</button>
+      <ul>
+        {items.map((item) => (
+          <ViewTransition key={item}>
+            <li>{item}</li>
+          </ViewTransition>
+        ))}
+      </ul>
+      <p><small>{typeof document !== 'undefined' && document.startViewTransition ? 'Your browser supports view transitions.' : 'No View Transition API: updates happen without animation.'}</small></p>
+    </>
+  )
+}
+```
+
+Each item gets an automatic name, so the browser animates every `<li>` from its old position to its new one. In browsers without the View Transition API, the update simply happens without animation.
+
+## Client-only subtrees: browser() (19.3)
+
+Some components can't render on the server at all: a map widget that reads `window`, a chart that measures the DOM. Before, people wrote `useEffect(() => setMounted(true), [])` and rendered `null` on the first pass. `react-dom` 19.3 exports **`browser(reason?)`**: calling `use(browser())` in a component tells the server renderer to skip it and render the nearest `<Suspense>` fallback; the browser renders the real content after hydration.
+
+```jsx
+import { Suspense, use } from 'react'
+import { browser } from 'react-dom'
+
+function MapWidget() {
+  use(browser('the map library needs window')) // the reason shows up in recoverable-error reports
+  return <div id="map">{/* ... */}</div>
+}
+
+<Suspense fallback={<p>Loading map…</p>}>
+  <MapWidget />
+</Suspense>
+```
+
+On the server this produces the fallback HTML; in the browser `use(browser())` returns immediately and the map renders.
+
+## Removed and deprecated APIs
+
+React 19 removed APIs that had been deprecated for years. When upgrading, first upgrade to 18.3, which warns about all of them.
+
+| Removed | Use instead |
+| --- | --- |
+| `ReactDOM.render`, `ReactDOM.hydrate` | `createRoot().render()`, `hydrateRoot()` |
+| `unmountComponentAtNode` | `root.unmount()` |
+| `ReactDOM.findDOMNode` | refs |
+| `propTypes` checks on components | TypeScript |
+| `defaultProps` on function components | default parameter values: `function Btn({ size = 'md' })` |
+| string refs (`ref="input"`) | `useRef` / callback refs |
+| legacy context (`contextTypes`, `getChildContext`) | `createContext` |
+| `react-test-renderer/shallow`, `act` from `react-dom/test-utils` | `act` from `react`, React Testing Library |
+| UMD builds | ESM CDNs such as esm.sh |
+
+Other changes: errors thrown during render are no longer re-thrown (they go to `onUncaughtError` / `onCaughtError`), `useRef` requires an argument in TypeScript, and **custom elements** (Web Components) are fully supported: props are set as properties when the element defines them, otherwise as attributes.
+
+Codemods exist for most changes: `npx codemod@latest react/19/migration-recipe`.
+
+## Interview questions
+
+<QA q="What is an Action in React 19?" level="mid" n={1}>
+<Answer>
+
+A function that runs inside a transition, usually async. React tracks it: `isPending` from `useTransition` stays true until the async work and the resulting updates finish, errors go to error boundaries, and optimistic updates made with `useOptimistic` are reverted when it ends. Forms accept Actions directly (`<form action={fn}>`), and `useActionState` wraps one with its result state.
+
+</Answer>
+</QA>
+
+<QA q="What does useActionState return, and how does its action function work?" level="mid" n={2}>
+<Answer>
+
+`[state, dispatchAction, isPending]`. The action receives `(previousState, payload)` (for forms, the payload is the `FormData`) and its return value becomes the new state, so success and error results are just state. Calls are queued and run in order, each getting the previous result. `dispatchAction` is passed to `<form action>` or called inside `startTransition`.
+
+</Answer>
+</QA>
+
+<QA q="How does useFormStatus know which form it belongs to?" level="mid" n={3}>
+<Answer>
+
+It reads the status of the closest parent `<form>` in the component tree, like a context the form provides. That's why it must be called in a component rendered inside the form (typically a submit button component); in the component that renders the `<form>` itself it always reports `pending: false`. It's exported from `react-dom`.
+
+</Answer>
+</QA>
+
+<QA q="How does useOptimistic roll back on failure?" level="senior" n={4}>
+<Answer>
+
+The optimistic value exists only while an Action is pending. `useOptimistic(state, update)` renders `update(state, value)` for each pending optimistic call; when the Action finishes, React discards those and renders from `state` again. If the Action updated `state` (success), the real value is shown; if it threw or returned without updating `state`, the optimistic value simply disappears. There's no manual rollback code.
+
+</Answer>
+</QA>
+
+<QA q="How is use different from other hooks?" level="mid" n={5}>
+<Answer>
+
+It can be called conditionally and in loops, and it reads either a context (like `useContext`) or a Promise, suspending until the Promise resolves and throwing its rejection to an error boundary. The Promise must come from outside the render (a parent, a cache, a Server Component) or the component suspends forever. It can't be used inside `try`/`catch`.
+
+</Answer>
+</QA>
+
+<QA q="What changed with refs in React 19?" level="junior" n={6}>
+<Answer>
+
+`ref` is a normal prop for function components, so `forwardRef` isn't needed. Ref callbacks can return a cleanup function that runs when the element is detached. `<Context>` can be used as a provider. In 19.3, `<Fragment>` accepts a ref whose instance can focus, observe and listen to its children.
+
+</Answer>
+</QA>
+
+<QA q="How do you set the page title in React 19?" level="junior" n={7}>
+<Answer>
+
+Render `<title>` (and `<meta>`, `<link>`) in any component: React hoists them into `<head>`, also during SSR and streaming. The title's children must be a single string, so use a template literal for dynamic titles.
+
+</Answer>
+</QA>
+
+<QA q="What's new in React 19.2 and 19.3?" level="senior" n={8}>
+<Answer>
+
+19.2: `<Activity>` for hidden-but-alive UI, `useEffectEvent`, `cacheSignal` for Server Components, Chrome Performance tracks, partial pre-rendering with `prerender`/`resume`, and batched Suspense reveals during SSR. 19.3: `<ViewTransition>` and `addTransitionType` for animating transitions with the View Transition API, refs on `<Fragment>`, and `browser()` from `react-dom` for client-only subtrees.
+
+</Answer>
+</QA>
+
+## Recap
+
+<Recap>
+
+- An Action is a (usually async) function run in a transition; React tracks its pending state, errors and optimistic updates.
+- State updates after an `await` inside a transition need another `startTransition`.
+- `useActionState(action, initial)` returns `[state, dispatch, isPending]`; the action's return value is the new state.
+- `<form action={fn}>` passes `FormData`, needs no `preventDefault`, and resets uncontrolled fields on success.
+- `useFormStatus` (from `react-dom`) reads the parent form's status and must be called inside the form.
+- `useOptimistic` shows a temporary value during an Action and rolls back automatically.
+- `use` reads Promises (with Suspense) and context, can be conditional, and needs a cached Promise.
+- `ref` is a prop, ref callbacks return cleanups, `<Context>` is a provider, and fragments accept refs (19.3).
+- `<title>`, `<meta>`, `<link>` and stylesheets render anywhere and are hoisted, deduplicated and ordered.
+- 19.2 brought `<Activity>` and `useEffectEvent`; 19.3 brought `<ViewTransition>`, Fragment refs and `browser()`.
+
+</Recap>
