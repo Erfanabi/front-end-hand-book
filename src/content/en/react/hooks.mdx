@@ -1,0 +1,952 @@
+## What hooks are and why they exist
+
+In [React fundamentals](/react/fundamentals) you used `useState` to give a component memory. `useState` is a **hook**: a special function, whose name starts with `use`, that lets a function component "hook into" a React feature such as state, context, refs or the lifecycle.
+
+Before hooks (React 16.8, 2019), only **class components** could have state or run code after rendering. That caused three real problems:
+
+- **Logic couldn't be shared cleanly.** To reuse "subscribe to the window size" in two components you needed wrapper patterns (higher-order components, render props) that nested the tree deeper and deeper ("wrapper hell").
+- **Related code was split apart.** A subscription was started in `componentDidMount` and stopped in `componentWillUnmount`, far from each other, while unrelated logic shared those same methods.
+- **Classes were confusing**: `this` binding, `this.props` changing under your feet, and code that minifies and optimizes worse.
+
+Hooks solve all three: state and side effects live in plain functions, related logic stays together, and you can extract any combination of hooks into your own **custom hook** and reuse it anywhere.
+
+### The map of built-in hooks
+
+React 19.3 ships these hooks. This chapter covers the ones marked **here**; the others have a chapter where they make the most sense.
+
+| Purpose | Hooks | Where |
+| --- | --- | --- |
+| Remember data | `useState`, `useReducer` | **here** (patterns in [State management](/react/state)) |
+| Read data from far above | `useContext` | **here** |
+| Values that don't affect rendering, DOM access | `useRef`, `useImperativeHandle` | **here** |
+| Subscribe to stores outside React | `useSyncExternalStore` | **here** |
+| Stable unique IDs | `useId` | **here** |
+| Labels in React DevTools | `useDebugValue` | **here** |
+| Synchronize with systems outside React | `useEffect`, `useLayoutEffect`, `useInsertionEffect`, `useEffectEvent` | [Effects](/react/effects) |
+| Skip unnecessary work | `useMemo`, `useCallback` | [Performance](/react/performance) |
+| Keep the UI responsive | `useTransition`, `useDeferredValue` | [Concurrent React](/react/advanced) |
+| Forms, async data and Actions | `use`, `useActionState`, `useOptimistic`, `useFormStatus` (from `react-dom`) | [React 19](/react/react-19) |
+
+## The rules of hooks
+
+There are only two rules, and both follow from how hooks work inside React:
+
+1. **Call hooks only at the top level** of a component or custom hook: never inside conditions, loops, nested functions, `try/catch` blocks, or after an early `return`.
+2. **Call hooks only from React functions**: function components and custom hooks, not from regular functions, event handlers or class components.
+
+(The one exception is [`use`](/react/react-19), which may be called conditionally.)
+
+### Why the order matters: how React stores hook state
+
+When you write `useState(0)`, you never give React a name for that state. So how does React know which value belongs to which call on the next render? **By call order.** For every component instance React keeps a list of hook slots (on the component's Fiber; see [Rendering](/react/rendering)). The first hook call reads slot 0, the second reads slot 1, and so on.
+
+This simplified model is a real, runnable approximation of the idea:
+
+```js run
+// A tiny model of React's hook storage: one list per component, read in call order
+let slots = []   // React keeps a list like this for each component instance
+let index = 0    // which hook call we're at during the current render
+
+function useState(initial) {
+  const i = index++                         // the slot is chosen by ORDER, nothing else
+  if (slots.length <= i) slots[i] = initial // first render: fill the slot
+  const setState = (v) => { slots[i] = v }
+  return [slots[i], setState]
+}
+
+function render(Component) {
+  index = 0                                 // every render reads from slot 0 again
+  return Component()
+}
+
+let showAge = true
+
+function Profile() {
+  const [name] = useState('Ada')            // slot 0
+  let age
+  if (showAge) {
+    ;[age] = useState(36)                   // ❌ slot 1, but only sometimes
+  }
+  const [city] = useState('London')         // slot 1 or 2, depending on the condition!
+  return { name, age, city }
+}
+
+console.log(render(Profile)) // { name: 'Ada', age: 36, city: 'London' }
+showAge = false
+console.log(render(Profile)) // { name: 'Ada', age: undefined, city: 36 }  ← city read age's slot
+```
+
+When the condition flips, every hook after it shifts by one slot and reads someone else's data. Real React detects this and throws "Rendered fewer hooks than expected" (or warns that "the order of Hooks changed"), because continuing would silently mix up state.
+
+<Callout type="mistake">
+```jsx
+function Profile({ user }) {
+  if (!user) return <p>Loading…</p>          // early return…
+  const [tab, setTab] = useState('posts')    // ❌ …so this hook is skipped on some renders
+}
+```
+Move all hook calls above the first `return`, and put conditions **inside** hooks or in the JSX instead: `const [tab, setTab] = useState('posts')` first, then `if (!user) return …`.
+</Callout>
+
+<Callout type="tip">
+`eslint-plugin-react-hooks` enforces both rules (`rules-of-hooks`) and checks Effect dependencies (`exhaustive-deps`). Since version 6 it also contains the rules the [React Compiler](/react/performance) relies on. Every React project should enable it.
+</Callout>
+
+## useState in depth
+
+The basics (`[value, setValue]`, snapshots, the updater form, batching) are in [React fundamentals](/react/fundamentals#state-giving-a-component-memory). Here are the details that interviews and real bugs are made of.
+
+### Lazy initialization
+
+`useState(initialValue)` ignores its argument after the first render, but the argument is still **evaluated** on every render, because it's ordinary JavaScript. If computing it is expensive, pass a **function** instead. React calls it only on the first render.
+
+```jsx live
+import { useState } from 'react'
+
+function createInitialTodos() {
+  console.log('createInitialTodos() ran')   // imagine this parses a big JSON or reads storage
+  return ['Todo 1', 'Todo 2', 'Todo 3']
+}
+
+export default function App() {
+  // ❌ useState(createInitialTodos()) would call it on EVERY render (and throw the result away)
+  // ✅ pass the function itself: React calls it on the first render only
+  const [todos, setTodos] = useState(createInitialTodos)
+  const [text, setText] = useState('')
+
+  return (
+    <>
+      <input value={text} onChange={(e) => setText(e.target.value)} placeholder="new todo" />{' '}
+      <button onClick={() => { setTodos([...todos, text || 'Untitled']); setText('') }}>Add</button>
+      <ul>{todos.map((t, i) => <li key={i}>{t}</li>)}</ul>
+    </>
+  )
+}
+```
+
+Type into the input: each keystroke re-renders, but the console shows the initializer only on mount. It appears **twice** there because StrictMode calls initializers twice to catch impure ones. Change `createInitialTodos` to `createInitialTodos()` and watch it run on every keystroke.
+
+A side effect of this rule: to store a **function** in state, you must wrap it, or React will call it. Write `useState(() => myFunction)` and `setFn(() => otherFunction)`.
+
+### Bailing out: setting the same value
+
+If you call the setter with a value that is identical to the current state according to `Object.is`, React **skips re-rendering the children** and doesn't commit anything. (It may still call your component once before it can tell, so don't rely on it never running.) That's why `setCount(5)` while `count` is already `5` is cheap, and why mutating an object and setting the same reference does nothing.
+
+### State is replaced, not merged
+
+`useState` replaces the whole value. Class `setState` *merged* objects; hooks don't.
+
+```jsx
+const [form, setForm] = useState({ name: '', email: '' })
+
+setForm({ name: 'Ada' })               // ❌ email is gone: state is now { name: 'Ada' }
+setForm({ ...form, name: 'Ada' })      // ✅ copy the rest, change one field
+setForm((f) => ({ ...f, name: 'Ada' }))// ✅ same, safe when several updates are queued
+```
+
+### State belongs to a position in the tree
+
+React doesn't attach state to *your component function*. It attaches it to **the place where the component is rendered** in the tree. As long as the same component type renders at the same position, its state is kept, even if its props change completely. Two consequences:
+
+- **Changing props doesn't reset state.** A `<Chat contact="Bob" />` that was `<Chat contact="Alice" />` a moment ago keeps Alice's draft.
+- **Changing the `key` resets it.** A different key means "a different item", so React unmounts the old instance and mounts a fresh one.
+
+Type a draft in both boxes, then switch to Bob:
+
+```jsx live
+import { useState } from 'react'
+
+function Chat({ contact }) {
+  const [draft, setDraft] = useState('')   // lives at this Chat's position in the tree
+  return (
+    <textarea
+      rows={2}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      placeholder={'Message to ' + contact}
+    />
+  )
+}
+
+export default function App() {
+  const [to, setTo] = useState('Alice')
+
+  return (
+    <>
+      {['Alice', 'Bob'].map((name) => (
+        <button key={name} onClick={() => setTo(name)} disabled={name === to}>
+          {name}
+        </button>
+      ))}
+      <p style={{ margin: '8px 0 2px' }}>Same position, no key: the draft leaks to the next contact ❌</p>
+      <Chat contact={to} />
+      <p style={{ margin: '8px 0 2px' }}>key={'{to}'}: a fresh Chat per contact ✅</p>
+      <Chat key={to} contact={to} />
+    </>
+  )
+}
+```
+
+### Don't store what you can calculate
+
+If a value can be computed from props or other state, compute it during render instead of storing it. Stored copies get out of sync.
+
+```jsx
+// ❌ fullName must be updated by hand every time first or last changes
+const [fullName, setFullName] = useState(first + ' ' + last)
+
+// ✅ derived during render: always correct, nothing to synchronize
+const fullName = first + ' ' + last
+```
+
+If the calculation is really expensive, cache it with [`useMemo`](/react/performance), but still don't put it in state.
+
+## useReducer
+
+### Why: when updates get complicated
+
+When a piece of state has many ways to change ("add", "toggle", "remove", "clear completed"), the update logic ends up scattered across many event handlers. **`useReducer`** moves all of it into one function, the **reducer**, and turns each event handler into a short description of *what happened*: an **action**.
+
+The name comes from `Array.prototype.reduce`: a reducer takes the current state and one action and returns the next state, `(state, action) => nextState`, just like `reduce` combines an accumulator with one item.
+
+<Api name="useReducer()" sig="const [state, dispatch] = useReducer(reducer, initialArg, init?)" returns="`[state, dispatch]`: the current state and a stable dispatch function." mutates="no (dispatch schedules a re-render)">
+
+- `reducer(state, action)`: a **pure** function that returns the next state. It must not mutate `state`, call APIs or set timers. In StrictMode React calls it twice to check.
+- `initialArg`: the initial state, or the argument passed to `init`.
+- `init` (optional): an initializer function; the initial state becomes `init(initialArg)`. It runs once, like a lazy `useState` initializer.
+- `dispatch(action)`: queues the action. React runs `reducer(currentState, action)` during the next render. The action can be any value; by convention it's an object with a `type` field describing what happened (`{ type: 'added', text }`). `dispatch` returns nothing, keeps the same identity across renders, and bails out like `setState` if the reducer returns the identical state.
+
+</Api>
+
+```jsx live
+import { useReducer } from 'react'
+
+// Every way this state can change, in one pure function
+function todosReducer(state, action) {
+  switch (action.type) {
+    case 'added':
+      return {
+        nextId: state.nextId + 1,
+        todos: [...state.todos, { id: state.nextId, text: action.text, done: false }],
+      }
+    case 'toggled':
+      return {
+        ...state,
+        todos: state.todos.map((t) => (t.id === action.id ? { ...t, done: !t.done } : t)),
+      }
+    case 'clearedDone':
+      return { ...state, todos: state.todos.filter((t) => !t.done) }
+    default:
+      throw new Error('Unknown action: ' + action.type)
+  }
+}
+
+const initialState = {
+  nextId: 3,
+  todos: [
+    { id: 1, text: 'Read the docs', done: true },
+    { id: 2, text: 'Build something', done: false },
+  ],
+}
+
+export default function App() {
+  const [state, dispatch] = useReducer(todosReducer, initialState)
+  const left = state.todos.filter((t) => !t.done).length   // derived, not stored
+
+  return (
+    <>
+      {/* handlers only describe WHAT happened; the reducer decides HOW state changes */}
+      <button onClick={() => dispatch({ type: 'added', text: 'Task #' + state.nextId })}>Add</button>{' '}
+      <button onClick={() => dispatch({ type: 'clearedDone' })}>Clear done</button>
+      <ul>
+        {state.todos.map((t) => (
+          <li key={t.id}>
+            <label>
+              <input type="checkbox" checked={t.done} onChange={() => dispatch({ type: 'toggled', id: t.id })} />{' '}
+              {t.text}
+            </label>
+          </li>
+        ))}
+      </ul>
+      <p>{left} left</p>
+    </>
+  )
+}
+```
+
+Because the reducer is a plain function, you can test it without React at all:
+
+```js run
+function counter(state, action) {
+  switch (action.type) {
+    case 'incremented': return { count: state.count + 1 }
+    case 'reset':       return { count: 0 }
+    default:            throw new Error('Unknown action: ' + action.type)
+  }
+}
+
+// Replaying a list of actions is just Array.reduce: that's where the name comes from
+const actions = [{ type: 'incremented' }, { type: 'incremented' }, { type: 'reset' }, { type: 'incremented' }]
+console.log(actions.reduce(counter, { count: 0 }))   // { count: 1 }
+```
+
+### useState or useReducer?
+
+| | `useState` | `useReducer` |
+| --- | --- | --- |
+| Best for | independent, simple values (a flag, a string, a number) | one object with several related fields and many kinds of updates |
+| Update logic lives in | each event handler | one reducer function |
+| Testing | through the component | the reducer alone, as a pure function |
+| Debugging | add logs in many places | log every action in one place |
+| Code size | less | more boilerplate |
+
+Internally `useState` *is* a `useReducer` with a built-in reducer that either returns the value you passed or calls your updater function. Choosing between them is about readability, not performance. A reducer combined with context is a classic way to manage app-wide state without libraries; see [State management](/react/state).
+
+## useRef
+
+### A value that survives renders without causing them
+
+Sometimes a component needs to remember something that **doesn't affect what's on screen**: a timer ID, the previous value of a prop, a WebSocket instance. State would cause pointless re-renders, and a local variable is forgotten after each render. A **ref** is the third option.
+
+<Api name="useRef()" sig="const ref = useRef(initialValue)" returns="a plain object `{ current: initialValue }` that is the same object on every render." mutates="no (you mutate ref.current yourself)">
+
+- `initialValue`: the starting value of `ref.current`, used only on the first render. Pass `null` for refs that will point to DOM nodes. With the React 19 types the argument is required.
+- The returned object is created once and kept for the lifetime of the component. You can read and write `ref.current` freely in event handlers and Effects.
+- Changing `ref.current` **does not trigger a re-render**. React doesn't know it changed.
+
+</Api>
+
+The difference from state is easiest to see side by side:
+
+```jsx live
+import { useRef, useState } from 'react'
+
+export default function App() {
+  const clicksRef = useRef(0)
+  const [clicks, setClicks] = useState(0)
+
+  return (
+    <>
+      <button
+        onClick={() => {
+          clicksRef.current++                                  // changes immediately…
+          console.log('ref.current is now', clicksRef.current) // …but nothing re-renders
+        }}
+      >
+        ref +1
+      </button>{' '}
+      <button onClick={() => setClicks((c) => c + 1)}>state +1</button>
+      {/* Reading a ref during render is only done here to visualize it; avoid it in real code */}
+      <p>state: {clicks} · ref, as seen by the last render: {clicksRef.current}</p>
+    </>
+  )
+}
+```
+
+Click **ref +1** a few times: the console counts up, but the screen doesn't change. Then click **state +1**: the re-render finally shows the ref's latest value.
+
+A typical real use is keeping a timer ID that handlers need but the UI never shows:
+
+```jsx live
+import { useRef, useState } from 'react'
+
+export default function App() {
+  const [startTime, setStartTime] = useState(null)
+  const [now, setNow] = useState(null)
+  const intervalRef = useRef(null)   // the interval ID: needed by both handlers, never rendered
+
+  function handleStart() {
+    setStartTime(Date.now())
+    setNow(Date.now())
+    clearInterval(intervalRef.current)                          // don't start two intervals
+    intervalRef.current = setInterval(() => setNow(Date.now()), 10)
+  }
+
+  function handleStop() {
+    clearInterval(intervalRef.current)                          // the ID from the click that started it
+  }
+
+  const seconds = startTime != null ? (now - startTime) / 1000 : 0
+
+  return (
+    <>
+      <h3 style={{ fontVariantNumeric: 'tabular-nums' }}>{seconds.toFixed(2)} s</h3>
+      <button onClick={handleStart}>Start</button>{' '}
+      <button onClick={handleStop}>Stop</button>
+    </>
+  )
+}
+```
+
+If `intervalRef` were a normal `let` variable, `handleStop` would see the variable from a *later* render, which was re-created as `null`, and the stopwatch would never stop.
+
+| | State | Ref |
+| --- | --- | --- |
+| Changing it re-renders | yes | no |
+| Value inside one render | a snapshot, fixed | always the latest (`ref.current`) |
+| Change it with | the setter (applied next render) | direct assignment (applied immediately) |
+| Read during render | yes, that's the point | no (except lazy initialization) |
+| Use for | anything shown on screen | timer IDs, DOM nodes, instances, "latest value" holders |
+
+<Callout type="mistake">
+**Don't read or write `ref.current` during rendering.** Rendering must be pure, and a ref changes outside React's knowledge, so the output becomes unpredictable (and the [React Compiler](/react/performance) assumes you follow this rule). Read and write refs in event handlers and Effects. The only accepted exception is lazy initialization: `if (ref.current === null) ref.current = new ExpensiveThing()`.
+</Callout>
+
+### Refs to DOM nodes
+
+The most common use of refs is reaching a real DOM element to call imperative browser APIs: `focus()`, `scrollIntoView()`, `play()`, measuring size. Pass the ref object to the `ref` attribute of a JSX tag. React sets `ref.current` to the DOM node after it inserts it into the page, and back to `null` when it removes it.
+
+```jsx live
+import { useRef } from 'react'
+
+export default function App() {
+  const inputRef = useRef(null)   // null during the first render: the <input> doesn't exist yet
+
+  return (
+    <>
+      <input ref={inputRef} defaultValue="Select me" />{' '}
+      {/* after commit, inputRef.current is the real <input> element */}
+      <button onClick={() => inputRef.current.focus()}>Focus</button>{' '}
+      <button onClick={() => inputRef.current.select()}>Select text</button>{' '}
+      <button onClick={() => console.log(inputRef.current.tagName, inputRef.current.value)}>Log node</button>
+    </>
+  )
+}
+```
+
+### Ref callbacks
+
+Instead of a ref object, you can pass a **function** to `ref`. React calls it with the DOM node when the node is attached. This is useful when you need to *do* something with the node at that moment (measure it, observe it), or when you have a dynamic number of nodes such as one per list item.
+
+Since React 19 a ref callback can **return a cleanup function**, which React calls when the node is detached, exactly like an Effect's cleanup. (Before React 19, React called the callback again with `null` instead.)
+
+```jsx live
+import { useCallback, useState } from 'react'
+
+export default function App() {
+  const [show, setShow] = useState(true)
+  const [width, setWidth] = useState(0)
+
+  // useCallback keeps the same function between renders. An inline arrow would be a NEW
+  // function each render, and React would run cleanup + attach again on every render.
+  const measureRef = useCallback((node) => {
+    console.log('attached:', node.tagName)
+    const observer = new ResizeObserver(([entry]) => setWidth(Math.round(entry.contentRect.width)))
+    observer.observe(node)
+    return () => {                               // React 19: runs when the node is removed
+      console.log('cleanup: observer disconnected')
+      observer.disconnect()
+    }
+  }, [])
+
+  return (
+    <>
+      <button onClick={() => setShow((s) => !s)}>{show ? 'Remove' : 'Add'} box</button>
+      {show && (
+        <div
+          ref={measureRef}
+          style={{ resize: 'horizontal', overflow: 'auto', width: 220, marginTop: 8, padding: 8, border: '2px dashed #6366f1' }}
+        >
+          Drag my bottom-right corner · width: {width}px
+        </div>
+      )}
+    </>
+  )
+}
+```
+
+In the console you'll see StrictMode's extra `attached → cleanup → attached` on mount, then a single `cleanup` each time you remove the box.
+
+### Passing a ref to your own component
+
+A ref given to a DOM tag points to the node. A ref given to **your component** is, since React 19, simply a prop called `ref` that you can forward to any element inside:
+
+```jsx
+// React 19: ref is a normal prop for function components
+function TextField({ label, ref }) {
+  return <label>{label} <input ref={ref} /></label>
+}
+
+// Before React 19 (still works, but no longer needed): wrap in forwardRef
+const TextFieldOld = forwardRef(function TextField({ label }, ref) {
+  return <label>{label} <input ref={ref} /></label>
+})
+```
+
+## useImperativeHandle
+
+Forwarding a ref gives the parent the **whole** DOM node, and it can do anything with it: change styles, remove children. Often you want to expose a small, deliberate API instead. `useImperativeHandle` lets a component decide what the parent's ref receives.
+
+<Api name="useImperativeHandle()" sig="useImperativeHandle(ref, createHandle, dependencies?)" returns="`undefined`." mutates="yes (sets the parent's ref to the object you return)">
+
+- `ref`: the `ref` prop your component received.
+- `createHandle`: a function with no arguments that returns the object to expose, usually a few methods.
+- `dependencies` (optional): like an Effect's dependency array. The handle is re-created when one changes; without the array it's re-created on every render.
+
+</Api>
+
+```jsx live
+import { useImperativeHandle, useRef } from 'react'
+
+function FancyInput({ label, ref }) {
+  const inputRef = useRef(null)
+
+  // The parent's ref will receive ONLY these two methods, not the <input> node
+  useImperativeHandle(ref, () => ({
+    focus() {
+      inputRef.current.focus()
+    },
+    clear() {
+      inputRef.current.value = ''
+      inputRef.current.focus()
+    },
+  }), [])
+
+  return (
+    <label>
+      {label} <input ref={inputRef} defaultValue="hello" />
+    </label>
+  )
+}
+
+export default function App() {
+  const fancyRef = useRef(null)
+
+  return (
+    <>
+      <FancyInput ref={fancyRef} label="Name:" />{' '}
+      <button onClick={() => fancyRef.current.focus()}>Focus</button>{' '}
+      <button onClick={() => fancyRef.current.clear()}>Clear</button>{' '}
+      <button onClick={() => console.log('the parent sees:', Object.keys(fancyRef.current))}>Inspect</button>
+    </>
+  )
+}
+```
+
+<Callout type="warning">
+Imperative handles are an escape hatch. Things that can be expressed with props should be: `<Modal isOpen={open} />` instead of `modalRef.current.open()`. Use handles for genuinely imperative actions such as focus, scroll, play/pause or "select all".
+</Callout>
+
+## useContext
+
+### The problem: prop drilling
+
+Some data is needed by many components at different depths: the current theme, the signed-in user, the language. Passing it as props through every layer, including components that don't use it themselves, is called **prop drilling**. It makes intermediate components noisy and refactoring painful.
+
+**Context** lets a parent provide a value to its **entire subtree**, and any component inside reads it directly, no matter how deep.
+
+### Three steps: create, provide, read
+
+<Api name="createContext()" sig="const SomeContext = createContext(defaultValue)" returns="a context object. Since React 19 it can be rendered directly as the provider." mutates="no">
+
+- `defaultValue`: the value components get when there is **no provider above them** in the tree. It never changes. Use a meaningful fallback, or `null` when there is no sensible default.
+- Provide a value: `<SomeContext value={x}>…</SomeContext>` (React 19). `<SomeContext.Provider value={x}>` still works and is what you'll see in older code.
+
+</Api>
+
+<Api name="useContext()" sig="const value = useContext(SomeContext)" returns="the `value` of the **closest** provider above this component, or the default value if there is none." mutates="no">
+
+- `SomeContext`: the object from `createContext`, not the value.
+- The provider must be **above** the component. A provider in the same component's JSX doesn't count for that component.
+- When the provider's value changes (compared with `Object.is`), **every** component reading that context re-renders, even those wrapped in `memo`.
+
+</Api>
+
+```jsx live
+import { createContext, useContext, useState } from 'react'
+
+// 1. Create (the default is used when no provider is above)
+const ThemeContext = createContext('light')
+
+function ThemedButton({ children }) {
+  // 3. Read: the nearest provider's value, however deep this component is
+  const theme = useContext(ThemeContext)
+  const dark = theme === 'dark'
+  return (
+    <button style={{ background: dark ? '#222' : '#fff', color: dark ? '#fff' : '#222', marginRight: 6 }}>
+      {children} ({theme})
+    </button>
+  )
+}
+
+function Toolbar() {
+  // Toolbar doesn't receive or pass a theme prop: no drilling
+  return (
+    <div style={{ margin: '6px 0' }}>
+      <ThemedButton>Save</ThemedButton>
+      <ThemedButton>Cancel</ThemedButton>
+    </div>
+  )
+}
+
+export default function App() {
+  const [theme, setTheme] = useState('light')
+
+  return (
+    <>
+      <button onClick={() => setTheme((t) => (t === 'light' ? 'dark' : 'light'))}>Toggle theme</button>
+
+      {/* 2. Provide (React 19: render the context itself) */}
+      <ThemeContext value={theme}>
+        <Toolbar />
+        {/* a nested provider overrides the value for its own subtree */}
+        <ThemeContext value="dark">
+          <ThemedButton>Always dark</ThemedButton>
+        </ThemeContext>
+      </ThemeContext>
+
+      {/* no provider above: the default value 'light' */}
+      <div style={{ marginTop: 6 }}>
+        <ThemedButton>Outside</ThemedButton>
+      </div>
+    </>
+  )
+}
+```
+
+### Context and re-renders
+
+Context is a way to **pass** data, not a state manager. When a provider's `value` changes, React re-renders every consumer of that context, and `memo` on a component between the provider and the consumer doesn't stop it. Two patterns keep this cheap:
+
+```jsx
+// ❌ A new object on every render of App → every consumer re-renders every time App renders
+<AuthContext value={{ user, login, logout }}>
+
+// ✅ The same object until user actually changes (login/logout must be stable, e.g. useCallback)
+const auth = useMemo(() => ({ user, login, logout }), [user, login, logout])
+<AuthContext value={auth}>
+```
+
+- **Stabilize object values** with `useMemo` (or let the [React Compiler](/react/performance) do it).
+- **Split contexts** by how often they change: a rarely changing `ThemeContext` shouldn't share a value with a fast-changing `MousePositionContext`. Splitting state and dispatch into two contexts is a common variant.
+
+For data that changes often and is read by many components, a store such as Zustand, which lets each component subscribe to just the slice it needs, usually beats context. Compared in [State management](/react/state).
+
+## useId
+
+Accessibility attributes link elements by ID: `<label htmlFor>`, `aria-describedby`, `aria-labelledby`. A reusable component can't hardcode an ID, because two instances on one page would collide. `Math.random()` doesn't work either: server rendering and the browser would generate different values and **hydration** would fail (see [SSR](/react/advanced)).
+
+<Api name="useId()" sig="const id = useId()" returns="a unique string ID for this component instance, stable across re-renders and identical on the server and the client." mutates="no">
+
+- No parameters. Call it once and derive related IDs from it: `id + '-hint'`.
+- The format is an implementation detail and changed in React 19.x (19.3 produces strings like `_r_1_`). Don't parse it.
+- Not for list **keys**: keys must come from your data.
+- `createRoot(…, { identifierPrefix })` adds a prefix, for pages with several React roots.
+
+</Api>
+
+```jsx live
+import { useId } from 'react'
+
+function Field({ label, hint, type = 'text' }) {
+  const id = useId()   // unique per instance; same value on server and client
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <label htmlFor={id}>{label}</label>{' '}
+      <input id={id} type={type} aria-describedby={id + '-hint'} />
+      <div id={id + '-hint'} style={{ fontSize: 12, color: '#666' }}>
+        {hint} · id = <code>{id}</code>
+      </div>
+    </div>
+  )
+}
+
+export default function App() {
+  return (
+    <>
+      <Field label="Email" hint="We never share it" type="email" />
+      <Field label="Password" hint="At least 8 characters" type="password" />
+    </>
+  )
+}
+```
+
+Click a label: focus jumps to its own input, because each `Field` got a different ID.
+
+## useSyncExternalStore
+
+### Reading data that lives outside React
+
+Some state isn't owned by React: a browser API (`navigator.onLine`, `matchMedia`, the URL), a WebSocket client, or a state library's store. React needs to read it during render and re-render when it changes. **`useSyncExternalStore`** is the official way to subscribe to such an **external store**.
+
+<Api name="useSyncExternalStore()" sig="const snapshot = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot?)" returns="the current snapshot of the store." mutates="no">
+
+- `subscribe(callback)`: start listening to the store and call `callback` whenever it may have changed. It must **return an unsubscribe function**. If you pass a different `subscribe` function on a later render, React re-subscribes, so define it outside the component or keep it stable.
+- `getSnapshot()`: return the store's current value. It must return the **same value** (by `Object.is`) when nothing changed. Returning a new object each call (`() => ({ ...store })`) makes React think the data changes constantly, and it errors with an infinite loop.
+- `getServerSnapshot()` (optional, required for server rendering and hydration): the initial value to use on the server and during hydration, for example `() => true` for "online".
+
+</Api>
+
+```jsx live
+import { useSyncExternalStore } from 'react'
+
+// A tiny store that lives OUTSIDE React, like a Redux/Zustand store
+function createStore(initialState) {
+  let state = initialState
+  const listeners = new Set()
+  return {
+    getSnapshot: () => state,               // same object until setState replaces it
+    subscribe(listener) {
+      listeners.add(listener)
+      return () => listeners.delete(listener)   // React calls this to unsubscribe
+    },
+    setState(update) {
+      state = update(state)                 // a NEW object, so getSnapshot returns something different
+      listeners.forEach((listener) => listener())  // "something changed, read the snapshot again"
+    },
+  }
+}
+
+const cartStore = createStore({ items: 0 })
+
+function CartBadge() {
+  // the 3rd argument is used during server rendering / hydration
+  const cart = useSyncExternalStore(cartStore.subscribe, cartStore.getSnapshot, cartStore.getSnapshot)
+  return <b style={{ margin: '0 8px' }}>🛒 {cart.items}</b>
+}
+
+function AddToCart() {
+  return <button onClick={() => cartStore.setState((s) => ({ items: s.items + 1 }))}>Add to cart</button>
+}
+
+export default function App() {
+  // Two badges and a button share data with no props, no context and no common parent state
+  return (
+    <>
+      <CartBadge />
+      <AddToCart />
+      <CartBadge />
+    </>
+  )
+}
+```
+
+### Why not just useState plus useEffect?
+
+You could copy the store into state inside an Effect, and many older libraries did. The problem is **tearing**. With concurrent rendering (see [Concurrent React](/react/advanced)), React can pause a render halfway, let the store change, and then continue: components rendered before the change show the old value, components rendered after show the new one, and the screen is inconsistent. `useSyncExternalStore` prevents this by detecting the change and re-rendering synchronously with one consistent snapshot. That is why Redux, Zustand and other libraries are built on it.
+
+## useDebugValue
+
+`useDebugValue(value, format?)` adds a label next to a **custom hook** in React DevTools. It has no effect on the app. The optional `format` function is only called when DevTools actually inspects the hook, so you can defer expensive formatting.
+
+```jsx
+function useOnlineStatus() {
+  const isOnline = useSyncExternalStore(subscribe, () => navigator.onLine, () => true)
+  useDebugValue(isOnline ? 'Online' : 'Offline')   // DevTools: OnlineStatus: "Online"
+  return isOnline
+}
+```
+
+## Custom hooks
+
+### Extracting logic into your own hook
+
+When several components need the same stateful logic, move it into a function whose name starts with `use` and which calls other hooks. That's a **custom hook**. It isn't a special React API, just a naming convention plus the rules of hooks. The `use` prefix tells both people and the linter that the function follows those rules.
+
+```jsx live
+import { useState, useSyncExternalStore } from 'react'
+
+// Custom hook #1: reusable logic built on useState
+function useToggle(initial = false) {
+  const [on, setOn] = useState(initial)
+  const toggle = () => setOn((v) => !v)
+  return [on, toggle]
+}
+
+// Custom hook #2: wraps a browser API with useSyncExternalStore
+function subscribeToNetwork(callback) {
+  window.addEventListener('online', callback)
+  window.addEventListener('offline', callback)
+  return () => {
+    window.removeEventListener('online', callback)
+    window.removeEventListener('offline', callback)
+  }
+}
+
+function useOnlineStatus() {
+  return useSyncExternalStore(subscribeToNetwork, () => navigator.onLine, () => true)
+}
+
+function Panel({ title }) {
+  const [open, toggle] = useToggle()   // every component that calls the hook gets its OWN state
+  const online = useOnlineStatus()
+  return (
+    <div style={{ border: '1px solid #ddd', borderRadius: 8, padding: 8, marginBottom: 6 }}>
+      <button onClick={toggle}>{open ? '▾' : '▸'} {title}</button> {online ? '🟢 online' : '🔴 offline'}
+      {open && <p style={{ margin: '6px 0 0' }}>The content of {title}.</p>}
+    </div>
+  )
+}
+
+export default function App() {
+  return (
+    <>
+      <Panel title="First panel" />
+      <Panel title="Second panel" />
+    </>
+  )
+}
+```
+
+Open the first panel only: the second stays closed. **Custom hooks share logic, not state.** Each call creates its own hook slots in the component that calls it, exactly as if you had written those `useState` calls inline. To share the *same* data between components, lift it up, put it in context, or use an external store.
+
+### Designing good custom hooks
+
+- **Name it after its purpose**, not its implementation: `useOnlineStatus`, `useDebouncedValue`, `useChatRoom`, not `useEffectOnce` or `useMount`.
+- **Return what callers need**: a single value (`useOnlineStatus()` → `boolean`), a tuple for "value plus setter" pairs (`[on, toggle]`), or an object when there are many fields (`{ data, error, isLoading }`).
+- **Only make it a hook if it calls hooks.** A helper that just formats a date is a normal function; prefixing it with `use` would force callers to follow the rules of hooks for no reason.
+- **Keep the inputs reactive.** Everything a custom hook receives (`roomId`, `delay`) can change on the next render; the hook must handle that. This is mostly about Effects and is covered in [Effects](/react/effects).
+
+Here is a classic custom hook you'll write in real apps (it uses `localStorage`, which the sandboxed demos can't access, so it's shown as plain code):
+
+```jsx
+function useLocalStorage(key, initialValue) {
+  // lazy initializer: read storage once, on the first render
+  const [value, setValue] = useState(() => {
+    const saved = localStorage.getItem(key)
+    return saved !== null ? JSON.parse(saved) : initialValue
+  })
+
+  // write back whenever key or value change (Effects are explained in the Effects chapter)
+  useEffect(() => {
+    localStorage.setItem(key, JSON.stringify(value))
+  }, [key, value])
+
+  return [value, setValue]
+}
+
+const [name, setName] = useLocalStorage('name', '')   // used exactly like useState
+```
+
+## Common mistakes
+
+<Callout type="mistake">
+**Calling a hook conditionally or in a loop**, including after an early `return`. Hook state is matched by call order. Keep every hook call at the top level and move the condition inside the hook or into the JSX.
+</Callout>
+
+<Callout type="mistake">
+**Calling hooks from a regular function or an event handler.** `onClick={() => { const [x] = useState() }}` is invalid: hooks can only run while React is rendering a component.
+</Callout>
+
+<Callout type="mistake">
+**Expecting a ref change to update the screen.** `ref.current = 5` doesn't re-render. If the value appears in JSX, it should be state.
+</Callout>
+
+<Callout type="mistake">
+**Passing a new object as a context value on every render.** All consumers re-render each time the provider's parent renders. Memoize the value or split the context.
+</Callout>
+
+<Callout type="mistake">
+**`getSnapshot` returning a new object each time** in `useSyncExternalStore`. React compares snapshots with `Object.is`, sees a change on every check and errors with "The result of getSnapshot should be cached". Return the store's existing object, or a primitive.
+</Callout>
+
+## Interview questions
+
+<QA q="What are hooks and why were they introduced?" level="junior" n={1}>
+<Answer>
+
+Hooks are functions starting with `use` that give function components access to React features: state (`useState`, `useReducer`), context, refs, effects and more. They were introduced in React 16.8 so that stateful logic could live in functions instead of classes: related code stays together, logic can be reused through custom hooks without wrapper components, and the `this` confusion of classes disappears.
+
+</Answer>
+</QA>
+
+<QA q="What are the rules of hooks, and why do they exist?" level="mid" n={2}>
+<Answer>
+
+Call hooks only at the top level (not in conditions, loops, nested functions or after an early return), and only from function components or custom hooks. React stores hook state in a per-component list and matches each call to its slot **by call order**. If a hook is skipped on some render, every later hook reads the wrong slot.
+
+</Answer>
+<Deep>
+
+The list lives on the component's Fiber. On mount React creates a hook object per call; on update it walks the same list in the same order. That's why React can detect "Rendered fewer hooks than expected", and why the linter rule `react-hooks/rules-of-hooks` exists. The exception is `use`, which isn't stored in that list the same way and may be called conditionally.
+
+</Deep>
+</QA>
+
+<QA q="When would you use useReducer instead of useState?" level="mid" n={3}>
+<Answer>
+
+When several pieces of state change together or there are many different kinds of updates. A reducer centralizes all transitions in one pure, easily tested function, and handlers just dispatch actions describing what happened. For a few independent values `useState` is simpler. Performance is the same: `useState` is implemented as a reducer.
+
+</Answer>
+<FollowUp>
+
+Why is `dispatch` convenient to pass down via context? Its identity never changes, so components that only dispatch don't need to re-render when the state changes, if you put state and dispatch in separate contexts.
+
+</FollowUp>
+</QA>
+
+<QA q="What is the difference between useRef and useState?" level="junior" n={4}>
+<Answer>
+
+Both persist across renders. Updating state triggers a re-render and the new value is visible in the next render. Updating `ref.current` is immediate, mutable and does **not** re-render. Use state for anything shown on screen, and refs for values the UI doesn't depend on (timer IDs, DOM nodes, instances) or for accessing DOM elements.
+
+</Answer>
+<Mistake>
+
+Reading or writing `ref.current` during render to "avoid re-renders". It makes rendering impure, and the screen can show stale values.
+
+</Mistake>
+</QA>
+
+<QA q="Do two components using the same custom hook share state?" level="junior" n={5}>
+<Answer>
+
+No. A custom hook shares *logic*. Each call runs its inner hooks inside the calling component, which gets its own independent state, as if the code were written inline. To share data, lift state up, use context, or use an external store.
+
+</Answer>
+</QA>
+
+<QA q="How does context affect re-renders, and how do you optimize it?" level="senior" n={6}>
+<Answer>
+
+When a provider's `value` changes by `Object.is`, every component that reads that context re-renders, and `memo` in between doesn't stop it. Passing a new object literal each render therefore re-renders all consumers on every parent render. Optimize by memoizing the value (`useMemo`, stable callbacks, or the React Compiler), splitting contexts by update frequency (or state vs dispatch), and moving fast-changing shared data to a store with selector-based subscriptions.
+
+</Answer>
+<FollowUp>
+
+Why can't a consumer subscribe to only one field of a context value? Context has no selectors: React only knows the whole value changed. Libraries like Zustand (built on `useSyncExternalStore`) compare a selected slice instead.
+
+</FollowUp>
+</QA>
+
+<QA q="What is useSyncExternalStore, and why not just useEffect with useState?" level="senior" n={7}>
+<Answer>
+
+It subscribes a component to a store outside React, given `subscribe`, `getSnapshot` and optionally `getServerSnapshot`. Copying the store into state from an Effect can cause **tearing** under concurrent rendering: parts of the UI render with different versions of the store. `useSyncExternalStore` detects a change during rendering and forces a consistent synchronous re-render. It also supports server rendering through `getServerSnapshot`.
+
+</Answer>
+</QA>
+
+<QA q="Why use useId instead of Math.random() or a global counter for IDs?" level="mid" n={8}>
+<Answer>
+
+IDs must be unique per instance **and** identical on the server and the client, or hydration fails. `Math.random()` differs between environments. A global counter depends on render order, which can differ between server and client (and with streaming). `useId` derives the ID from the component's position in the tree, so it's stable on both sides.
+
+</Answer>
+</QA>
+
+<QA q="How can a parent call a method on a child component?" level="mid" n={9}>
+<Answer>
+
+Pass a ref to the child. In React 19 `ref` is a normal prop, so the child can forward it to a DOM element (before 19 this required `forwardRef`). To expose a limited API instead of the whole node, the child calls `useImperativeHandle(ref, () => ({ focus, clear }))`. Prefer props for anything that can be declarative, and keep imperative handles for focus, scroll, media and similar actions.
+
+</Answer>
+</QA>
+
+## Recap
+
+<Recap>
+
+- Hooks are `use*` functions that give function components state, context, refs and effects; custom hooks reuse stateful logic.
+- Rules: hooks only at the top level, and only in components or custom hooks. React matches hook state by call order.
+- `useState`: pass a function for lazy initialization, values are replaced not merged, identical values bail out, and state belongs to a tree position (change `key` to reset it).
+- Derive values during render instead of storing copies in state.
+- `useReducer(reducer, initialArg, init?)` centralizes many related updates in one pure function; `dispatch` is stable.
+- `useRef` holds a mutable value that survives renders without causing them; don't touch `ref.current` during render.
+- DOM refs give access to nodes; React 19 ref callbacks can return a cleanup, and `ref` is a normal prop of function components.
+- `useImperativeHandle` exposes a small imperative API instead of the whole DOM node.
+- Context avoids prop drilling; every consumer re-renders when the value changes, so memoize values and split contexts.
+- `useId` creates hydration-safe IDs; `useSyncExternalStore` subscribes to external stores without tearing.
+
+</Recap>

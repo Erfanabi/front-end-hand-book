@@ -399,6 +399,10 @@ const descriptions: Record<string, Localized> = {
     fa: 'UI = f(state)، createRoot، JSX و Elementها، Componentها و props، Render شرطی، لیست و key، Eventها، useState و Snapshot، Immutability، خالص بودن و StrictMode.',
     en: 'UI = f(state), createRoot, JSX and elements, components and props, conditional rendering, lists and keys, events, useState and snapshots, immutability, purity and StrictMode.',
   },
+  'react/hooks': {
+    fa: 'قوانین Hookها و دلیلشان، useState با جزئیات، useReducer، useRef و Ref Callbackها، useImperativeHandle، useContext، useId، useSyncExternalStore و Custom Hookها.',
+    en: 'The rules of hooks and why, useState in depth, useReducer, useRef and ref callbacks, useImperativeHandle, useContext, useId, useSyncExternalStore and custom hooks.',
+  },
 }
 
 for (const part of parts) {

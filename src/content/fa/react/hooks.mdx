@@ -1,0 +1,952 @@
+## Hook چیست و چرا به وجود آمد
+
+در [مبانی React](/react/fundamentals) با `useState` به Component حافظه دادید. `useState` یک **Hook** (قلاب) است: تابعی ویژه که اسمش با `use` شروع می‌شود و به Function Component اجازه می‌دهد به یکی از قابلیت‌های React «قلاب شود»؛ مثل State، Context، Ref یا چرخه‌ی عمر.
+
+قبل از Hookها (React 16.8، سال 2019) فقط **Class Componentها** می‌توانستند State داشته باشند یا بعد از Render کدی اجرا کنند. این باعث سه مشکل واقعی شده بود:
+
+- **منطق را نمی‌شد تمیز بین Componentها به اشتراک گذاشت.** برای استفاده‌ی دوباره از «گوش دادن به اندازه‌ی پنجره» در دو Component، به الگوهای پوششی (Higher-Order Component، Render Props) نیاز داشتید که درخت را مدام عمیق‌تر می‌کردند؛ همان «جهنم Wrapperها».
+- **کدهای مرتبط از هم جدا می‌افتادند.** یک Subscription در `componentDidMount` شروع و در `componentWillUnmount` متوقف می‌شد، دور از هم، در حالی که منطق‌های بی‌ربط همان متدها را بین خودشان تقسیم می‌کردند.
+- **Classها گیج‌کننده بودند**: Bind کردن `this`، عوض شدن `this.props` زیر دست شما، و کدی که بدتر Minify و بهینه می‌شد.
+
+Hookها هر سه را حل می‌کنند: State و Side Effectها در تابع‌های ساده زندگی می‌کنند، منطق‌های مرتبط کنار هم می‌مانند و می‌توانید هر ترکیبی از Hookها را در یک **Custom Hook** (Hook سفارشی) بیرون بکشید و هر جا خواستید دوباره استفاده کنید.
+
+### نقشه‌ی Hookهای داخلی
+
+React 19.3 این Hookها را دارد. این فصل مواردی را که با **همین‌جا** مشخص شده‌اند پوشش می‌دهد؛ بقیه در فصلی آمده‌اند که بیشترین معنا را آنجا دارند.
+
+| هدف | Hookها | کجا |
+| --- | --- | --- |
+| به خاطر سپردن داده | `useState`، `useReducer` | **همین‌جا** (الگوها در [مدیریت State](/react/state)) |
+| خواندن داده از خیلی بالاتر در درخت | `useContext` | **همین‌جا** |
+| مقدارهایی که روی Render اثر ندارند، دسترسی به DOM | `useRef`، `useImperativeHandle` | **همین‌جا** |
+| Subscribe کردن به Storeهای بیرون از React | `useSyncExternalStore` | **همین‌جا** |
+| IDهای یکتا و پایدار | `useId` | **همین‌جا** |
+| برچسب در React DevTools | `useDebugValue` | **همین‌جا** |
+| هماهنگ شدن با سیستم‌های بیرون از React | `useEffect`، `useLayoutEffect`، `useInsertionEffect`، `useEffectEvent` | [Effectها](/react/effects) |
+| رد کردن کارهای غیرضروری | `useMemo`، `useCallback` | [Performance](/react/performance) |
+| پاسخ‌گو نگه داشتن UI | `useTransition`، `useDeferredValue` | [Concurrent React](/react/advanced) |
+| فرم‌ها، داده‌ی Async و Actionها | `use`، `useActionState`، `useOptimistic`، `useFormStatus` (از `react-dom`) | [React 19](/react/react-19) |
+
+## قوانین Hookها
+
+فقط دو قانون وجود دارد و هر دو از نحوه‌ی کار Hookها در React نتیجه می‌شوند:
+
+1. **Hookها را فقط در بالاترین سطح** Component یا Custom Hook صدا بزنید: هرگز داخل شرط، حلقه، تابع تودرتو، بلوک `try/catch` یا بعد از یک `return` زودهنگام.
+2. **Hookها را فقط از تابع‌های React صدا بزنید**: Function Componentها و Custom Hookها؛ نه از تابع‌های معمولی، Event Handlerها یا Class Componentها.
+
+(تنها استثنا [`use`](/react/react-19) است که می‌شود آن را شرطی صدا زد.)
+
+### چرا ترتیب مهم است: React State هر Hook را کجا نگه می‌دارد
+
+وقتی `useState(0)` می‌نویسید، هیچ اسمی برای آن State به React نمی‌دهید. پس React در Render بعدی از کجا بفهمد کدام مقدار مال کدام فراخوانی است؟ **از روی ترتیب فراخوانی.** React برای هر Instance از Component یک لیست از خانه‌های Hook نگه می‌دارد (روی Fiber همان Component؛ [Rendering](/react/rendering) را ببینید). اولین فراخوانی Hook خانه‌ی 0 را می‌خواند، دومی خانه‌ی 1 و همین‌طور الی آخر.
+
+این مدل ساده‌شده یک تقریب واقعی و قابل اجرا از همین ایده است:
+
+```js run
+// مدل کوچکی از ذخیره‌سازی Hookها در React: یک لیست برای هر Component که به ترتیب فراخوانی خوانده می‌شود
+let slots = []   // React برای هر Instance از Component لیستی شبیه این نگه می‌دارد
+let index = 0    // در Render فعلی به کدام فراخوانی Hook رسیده‌ایم
+
+function useState(initial) {
+  const i = index++                         // خانه فقط بر اساس «ترتیب» انتخاب می‌شود، نه چیز دیگر
+  if (slots.length <= i) slots[i] = initial // اولین Render: خانه را پر کن
+  const setState = (v) => { slots[i] = v }
+  return [slots[i], setState]
+}
+
+function render(Component) {
+  index = 0                                 // هر Render دوباره از خانه‌ی 0 شروع می‌کند
+  return Component()
+}
+
+let showAge = true
+
+function Profile() {
+  const [name] = useState('Ada')            // خانه‌ی 0
+  let age
+  if (showAge) {
+    ;[age] = useState(36)                   // ❌ خانه‌ی 1، اما فقط بعضی وقت‌ها
+  }
+  const [city] = useState('London')         // بسته به شرط، خانه‌ی 1 یا 2!
+  return { name, age, city }
+}
+
+console.log(render(Profile)) // { name: 'Ada', age: 36, city: 'London' }
+showAge = false
+console.log(render(Profile)) // { name: 'Ada', age: undefined, city: 36 }  ← city خانه‌ی age را خواند
+```
+
+وقتی شرط برعکس می‌شود، همه‌ی Hookهای بعد از آن یک خانه جابه‌جا می‌شوند و داده‌ی بقیه را می‌خوانند. React واقعی این را تشخیص می‌دهد و خطای "Rendered fewer hooks than expected" می‌دهد (یا هشدار می‌دهد که "the order of Hooks changed")، چون ادامه دادن یعنی قاطی شدن بی‌صدای Stateها.
+
+<Callout type="mistake">
+```jsx
+function Profile({ user }) {
+  if (!user) return <p>Loading…</p>          // return زودهنگام…
+  const [tab, setTab] = useState('posts')    // ❌ …پس این Hook در بعضی Renderها اجرا نمی‌شود
+}
+```
+همه‌ی فراخوانی‌های Hook را بالای اولین `return` ببرید و شرط را **داخل** Hook یا در JSX بگذارید: اول `const [tab, setTab] = useState('posts')`، بعد `if (!user) return …`.
+</Callout>
+
+<Callout type="tip">
+`eslint-plugin-react-hooks` هر دو قانون را اجبار می‌کند (`rules-of-hooks`) و Dependencyهای Effect را هم بررسی می‌کند (`exhaustive-deps`). از نسخه‌ی 6 قوانینی را هم دارد که [React Compiler](/react/performance) به آن‌ها تکیه می‌کند. هر پروژه‌ی React باید فعالش کند.
+</Callout>
+
+## useState با جزئیات
+
+پایه‌ها (`[value, setValue]`، Snapshot، شکل Updater، Batching) در [مبانی React](/react/fundamentals#state-دادن-حافظه-به-component) آمده‌اند. اینجا جزئیاتی را می‌بینیم که سوال‌های مصاحبه و باگ‌های واقعی از آن‌ها ساخته می‌شوند.
+
+### مقداردهی اولیه‌ی تنبل (Lazy Initialization)
+
+`useState(initialValue)` بعد از اولین Render آرگومانش را نادیده می‌گیرد، اما آن آرگومان همچنان در هر Render **محاسبه** می‌شود، چون یک JavaScript معمولی است. اگر محاسبه‌اش سنگین است، به‌جایش یک **تابع** بدهید. React آن را فقط در اولین Render صدا می‌زند.
+
+```jsx live
+import { useState } from 'react'
+
+function createInitialTodos() {
+  console.log('createInitialTodos() ran')   // فرض کنید یک JSON بزرگ را Parse می‌کند یا از Storage می‌خواند
+  return ['Todo 1', 'Todo 2', 'Todo 3']
+}
+
+export default function App() {
+  // ❌ useState(createInitialTodos()) آن را در «هر» Render صدا می‌زند (و نتیجه را دور می‌ریزد)
+  // ✅ خود تابع را بدهید: React فقط در اولین Render صدایش می‌زند
+  const [todos, setTodos] = useState(createInitialTodos)
+  const [text, setText] = useState('')
+
+  return (
+    <>
+      <input value={text} onChange={(e) => setText(e.target.value)} placeholder="new todo" />{' '}
+      <button onClick={() => { setTodos([...todos, text || 'Untitled']); setText('') }}>Add</button>
+      <ul>{todos.map((t, i) => <li key={i}>{t}</li>)}</ul>
+    </>
+  )
+}
+```
+
+داخل اینپوت تایپ کنید: هر بار فشردن کلید یک Render دوباره است، اما Console تابع Initializer را فقط موقع Mount نشان می‌دهد. آنجا **دو بار** دیده می‌شود، چون StrictMode برای پیدا کردن Initializerهای ناخالص آن‌ها را دو بار صدا می‌زند. `createInitialTodos` را به `createInitialTodos()` تغییر دهید و ببینید با هر کلید اجرا می‌شود.
+
+یک نتیجه‌ی جانبی این قانون: برای نگه داشتن یک **تابع** در State باید آن را در تابع دیگری بپیچید، وگرنه React صدایش می‌زند. بنویسید `useState(() => myFunction)` و `setFn(() => otherFunction)`.
+
+### صرف‌نظر از Render: Set کردن همان مقدار
+
+اگر Setter را با مقداری صدا بزنید که طبق `Object.is` با State فعلی یکسان است، React **از Render دوباره‌ی فرزندان صرف‌نظر می‌کند** و چیزی را Commit نمی‌کند. (ممکن است قبل از اینکه متوجه شود یک بار Component شما را صدا بزند، پس روی اینکه هیچ‌وقت اجرا نمی‌شود حساب نکنید.) برای همین `setCount(5)` وقتی `count` از قبل `5` است ارزان است، و برای همین Mutate کردن یک Object و Set کردن همان Reference هیچ کاری نمی‌کند.
+
+### State جایگزین می‌شود، ادغام نمی‌شود
+
+`useState` کل مقدار را جایگزین می‌کند. `setState` در Classها Objectها را *ادغام* (Merge) می‌کرد؛ Hookها این کار را نمی‌کنند.
+
+```jsx
+const [form, setForm] = useState({ name: '', email: '' })
+
+setForm({ name: 'Ada' })               // ❌ email از دست رفت: State حالا { name: 'Ada' } است
+setForm({ ...form, name: 'Ada' })      // ✅ بقیه را کپی کن و فقط یک فیلد را عوض کن
+setForm((f) => ({ ...f, name: 'Ada' }))// ✅ همان، و وقتی چند Update در صف است بی‌خطر است
+```
+
+### State مال یک جایگاه در درخت است
+
+React State را به *تابع Component شما* وصل نمی‌کند؛ آن را به **جایی که Component در درخت Render شده** وصل می‌کند. تا وقتی همان نوع Component در همان جایگاه Render شود، State آن حفظ می‌شود، حتی اگر propsش کاملاً عوض شود. دو نتیجه:
+
+- **عوض شدن props، State را Reset نمی‌کند.** یک `<Chat contact="Bob" />` که لحظه‌ای قبل `<Chat contact="Alice" />` بوده، پیش‌نویس Alice را نگه می‌دارد.
+- **عوض شدن `key`، State را Reset می‌کند.** key متفاوت یعنی «آیتم متفاوت»، پس React نمونه‌ی قبلی را Unmount و یک نمونه‌ی تازه Mount می‌کند.
+
+در هر دو کادر یک پیش‌نویس تایپ کنید و بعد به Bob بروید:
+
+```jsx live
+import { useState } from 'react'
+
+function Chat({ contact }) {
+  const [draft, setDraft] = useState('')   // در جایگاه همین Chat در درخت زندگی می‌کند
+  return (
+    <textarea
+      rows={2}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      placeholder={'Message to ' + contact}
+    />
+  )
+}
+
+export default function App() {
+  const [to, setTo] = useState('Alice')
+
+  return (
+    <>
+      {['Alice', 'Bob'].map((name) => (
+        <button key={name} onClick={() => setTo(name)} disabled={name === to}>
+          {name}
+        </button>
+      ))}
+      <p style={{ margin: '8px 0 2px' }}>Same position, no key: the draft leaks to the next contact ❌</p>
+      <Chat contact={to} />
+      <p style={{ margin: '8px 0 2px' }}>key={'{to}'}: a fresh Chat per contact ✅</p>
+      <Chat key={to} contact={to} />
+    </>
+  )
+}
+```
+
+### چیزی را که می‌شود حساب کرد ذخیره نکنید
+
+اگر یک مقدار را می‌شود از props یا Stateهای دیگر حساب کرد، به‌جای ذخیره کردن، حین Render حسابش کنید. کپی‌های ذخیره‌شده از هماهنگی خارج می‌شوند.
+
+```jsx
+// ❌ هر بار که first یا last عوض شود، fullName باید دستی به‌روز شود
+const [fullName, setFullName] = useState(first + ' ' + last)
+
+// ✅ حین Render ساخته می‌شود: همیشه درست است و چیزی برای هماهنگ کردن ندارد
+const fullName = first + ' ' + last
+```
+
+اگر محاسبه واقعاً سنگین است، آن را با [`useMemo`](/react/performance) Cache کنید، اما باز هم در State نگذاریدش.
+
+## useReducer
+
+### چرا: وقتی Updateها پیچیده می‌شوند
+
+وقتی یک State راه‌های زیادی برای تغییر دارد («اضافه کن»، «تیک بزن»، «حذف کن»، «انجام‌شده‌ها را پاک کن»)، منطق Update بین Event Handlerهای زیادی پخش می‌شود. **`useReducer`** همه‌ی آن را به یک تابع منتقل می‌کند، یعنی **Reducer**، و هر Event Handler را به توصیف کوتاهی از *اتفاقی که افتاد* تبدیل می‌کند: یک **Action**.
+
+اسمش از `Array.prototype.reduce` می‌آید: Reducer، State فعلی و یک Action را می‌گیرد و State بعدی را برمی‌گرداند، یعنی `(state, action) => nextState`؛ درست مثل `reduce` که یک Accumulator را با یک آیتم ترکیب می‌کند.
+
+<Api name="useReducer()" sig="const [state, dispatch] = useReducer(reducer, initialArg, init?)" returns="`[state, dispatch]`: State فعلی و یک تابع dispatch پایدار." mutates="no (dispatch یک Render دوباره زمان‌بندی می‌کند)">
+
+- `reducer(state, action)`: یک تابع **خالص** که State بعدی را برمی‌گرداند. نباید `state` را Mutate کند، API صدا بزند یا Timer بسازد. در StrictMode، React برای بررسی آن را دو بار صدا می‌زند.
+- `initialArg`: State اولیه، یا آرگومانی که به `init` داده می‌شود.
+- `init` (اختیاری): یک تابع Initializer؛ State اولیه می‌شود `init(initialArg)`. مثل Initializer تنبل `useState` فقط یک بار اجرا می‌شود.
+- `dispatch(action)`: Action را در صف می‌گذارد. React در Render بعدی `reducer(currentState, action)` را اجرا می‌کند. Action می‌تواند هر مقداری باشد؛ طبق قرارداد Objectی است با فیلد `type` که توصیف می‌کند چه اتفاقی افتاد (`{ type: 'added', text }`). `dispatch` چیزی برنمی‌گرداند، در همه‌ی Renderها همان هویت را دارد و اگر Reducer همان State را برگرداند، مثل `setState` از Render صرف‌نظر می‌کند.
+
+</Api>
+
+```jsx live
+import { useReducer } from 'react'
+
+// همه‌ی راه‌های تغییر این State، در یک تابع خالص
+function todosReducer(state, action) {
+  switch (action.type) {
+    case 'added':
+      return {
+        nextId: state.nextId + 1,
+        todos: [...state.todos, { id: state.nextId, text: action.text, done: false }],
+      }
+    case 'toggled':
+      return {
+        ...state,
+        todos: state.todos.map((t) => (t.id === action.id ? { ...t, done: !t.done } : t)),
+      }
+    case 'clearedDone':
+      return { ...state, todos: state.todos.filter((t) => !t.done) }
+    default:
+      throw new Error('Unknown action: ' + action.type)
+  }
+}
+
+const initialState = {
+  nextId: 3,
+  todos: [
+    { id: 1, text: 'Read the docs', done: true },
+    { id: 2, text: 'Build something', done: false },
+  ],
+}
+
+export default function App() {
+  const [state, dispatch] = useReducer(todosReducer, initialState)
+  const left = state.todos.filter((t) => !t.done).length   // محاسبه می‌شود، ذخیره نمی‌شود
+
+  return (
+    <>
+      {/* Handlerها فقط می‌گویند «چه» اتفاقی افتاد؛ Reducer تصمیم می‌گیرد State «چطور» عوض شود */}
+      <button onClick={() => dispatch({ type: 'added', text: 'Task #' + state.nextId })}>Add</button>{' '}
+      <button onClick={() => dispatch({ type: 'clearedDone' })}>Clear done</button>
+      <ul>
+        {state.todos.map((t) => (
+          <li key={t.id}>
+            <label>
+              <input type="checkbox" checked={t.done} onChange={() => dispatch({ type: 'toggled', id: t.id })} />{' '}
+              {t.text}
+            </label>
+          </li>
+        ))}
+      </ul>
+      <p>{left} left</p>
+    </>
+  )
+}
+```
+
+چون Reducer یک تابع ساده است، می‌توانید بدون React تستش کنید:
+
+```js run
+function counter(state, action) {
+  switch (action.type) {
+    case 'incremented': return { count: state.count + 1 }
+    case 'reset':       return { count: 0 }
+    default:            throw new Error('Unknown action: ' + action.type)
+  }
+}
+
+// دوباره اجرا کردن یک لیست از Actionها همان Array.reduce است؛ اسمش از همین‌جا آمده
+const actions = [{ type: 'incremented' }, { type: 'incremented' }, { type: 'reset' }, { type: 'incremented' }]
+console.log(actions.reduce(counter, { count: 0 }))   // { count: 1 }
+```
+
+### useState یا useReducer؟
+
+| | `useState` | `useReducer` |
+| --- | --- | --- |
+| مناسب برای | مقدارهای ساده و مستقل (یک Flag، یک رشته، یک عدد) | یک Object با چند فیلد مرتبط و انواع زیادی از Update |
+| منطق Update کجاست | در هر Event Handler | در یک تابع Reducer |
+| تست | از طریق Component | خود Reducer به‌تنهایی، به‌عنوان یک تابع خالص |
+| دیباگ | لاگ در جاهای زیاد | لاگ هر Action در یک جا |
+| حجم کد | کمتر | کد تکراری بیشتر |
+
+در داخل React، `useState` *همان* `useReducer` است با یک Reducer داخلی که یا مقداری را که دادید برمی‌گرداند یا تابع Updater شما را صدا می‌زند. انتخاب بینشان به خوانایی مربوط است، نه Performance. ترکیب Reducer با Context یک روش کلاسیک برای مدیریت State کل اپ بدون کتابخانه است؛ [مدیریت State](/react/state) را ببینید.
+
+## useRef
+
+### مقداری که بین Renderها می‌ماند، بدون اینکه Render راه بیندازد
+
+گاهی یک Component باید چیزی را به خاطر بسپارد که **روی چیزی که روی صفحه است اثری ندارد**: شناسه‌ی یک Timer، مقدار قبلی یک prop، یک Instance از WebSocket. State باعث Renderهای بی‌دلیل می‌شود و متغیر محلی بعد از هر Render فراموش می‌شود. **Ref** گزینه‌ی سوم است.
+
+<Api name="useRef()" sig="const ref = useRef(initialValue)" returns="یک Object ساده‌ی `{ current: initialValue }` که در همه‌ی Renderها همان Object است." mutates="no (خودتان ref.current را تغییر می‌دهید)">
+
+- `initialValue`: مقدار اولیه‌ی `ref.current` که فقط در اولین Render استفاده می‌شود. برای Refهایی که قرار است به نود DOM اشاره کنند `null` بدهید. با Typeهای React 19 این آرگومان اجباری است.
+- Object برگشتی یک بار ساخته می‌شود و تا پایان عمر Component نگه داشته می‌شود. در Event Handlerها و Effectها می‌توانید آزادانه `ref.current` را بخوانید و بنویسید.
+- تغییر `ref.current` **Render دوباره راه نمی‌اندازد**. React نمی‌فهمد که عوض شده.
+
+</Api>
+
+تفاوتش با State کنار هم راحت‌تر دیده می‌شود:
+
+```jsx live
+import { useRef, useState } from 'react'
+
+export default function App() {
+  const clicksRef = useRef(0)
+  const [clicks, setClicks] = useState(0)
+
+  return (
+    <>
+      <button
+        onClick={() => {
+          clicksRef.current++                                  // بلافاصله عوض می‌شود…
+          console.log('ref.current is now', clicksRef.current) // …اما چیزی دوباره Render نمی‌شود
+        }}
+      >
+        ref +1
+      </button>{' '}
+      <button onClick={() => setClicks((c) => c + 1)}>state +1</button>
+      {/* خواندن Ref حین Render فقط برای نمایش در این دموست؛ در کد واقعی این کار را نکنید */}
+      <p>state: {clicks} · ref, as seen by the last render: {clicksRef.current}</p>
+    </>
+  )
+}
+```
+
+چند بار روی **ref +1** کلیک کنید: Console جلو می‌رود، اما صفحه عوض نمی‌شود. بعد روی **state +1** کلیک کنید: Render دوباره بالاخره آخرین مقدار Ref را نشان می‌دهد.
+
+یک کاربرد واقعی و رایج، نگه داشتن شناسه‌ی Timerی است که Handlerها لازمش دارند اما UI هیچ‌وقت نشانش نمی‌دهد:
+
+```jsx live
+import { useRef, useState } from 'react'
+
+export default function App() {
+  const [startTime, setStartTime] = useState(null)
+  const [now, setNow] = useState(null)
+  const intervalRef = useRef(null)   // شناسه‌ی Interval: هر دو Handler لازمش دارند، هیچ‌وقت Render نمی‌شود
+
+  function handleStart() {
+    setStartTime(Date.now())
+    setNow(Date.now())
+    clearInterval(intervalRef.current)                          // دو Interval هم‌زمان راه نینداز
+    intervalRef.current = setInterval(() => setNow(Date.now()), 10)
+  }
+
+  function handleStop() {
+    clearInterval(intervalRef.current)                          // همان شناسه‌ای که کلیکِ شروع ساخته
+  }
+
+  const seconds = startTime != null ? (now - startTime) / 1000 : 0
+
+  return (
+    <>
+      <h3 style={{ fontVariantNumeric: 'tabular-nums' }}>{seconds.toFixed(2)} s</h3>
+      <button onClick={handleStart}>Start</button>{' '}
+      <button onClick={handleStop}>Stop</button>
+    </>
+  )
+}
+```
+
+اگر `intervalRef` یک متغیر معمولی با `let` بود، `handleStop` متغیرِ یک Render *بعدی* را می‌دید که دوباره با `null` ساخته شده بود، و کرنومتر هیچ‌وقت متوقف نمی‌شد.
+
+| | State | Ref |
+| --- | --- | --- |
+| تغییرش Render دوباره راه می‌اندازد | بله | نه |
+| مقدار داخل یک Render | یک Snapshot ثابت | همیشه آخرین مقدار (`ref.current`) |
+| با چه چیزی عوضش می‌کنید | Setter (در Render بعدی اعمال می‌شود) | انتساب مستقیم (بلافاصله اعمال می‌شود) |
+| خواندن حین Render | بله، اصل کارش همین است | نه (به‌جز مقداردهی اولیه‌ی تنبل) |
+| برای چه | هر چیزی که روی صفحه نشان داده می‌شود | شناسه‌ی Timer، نودهای DOM، Instanceها، نگه‌دارنده‌ی «آخرین مقدار» |
+
+<Callout type="mistake">
+**حین Render، `ref.current` را نخوانید و ننویسید.** Render باید خالص باشد و Ref بیرون از اطلاع React عوض می‌شود، پس خروجی غیرقابل‌پیش‌بینی می‌شود (و [React Compiler](/react/performance) هم فرض می‌کند این قانون را رعایت می‌کنید). Refها را در Event Handlerها و Effectها بخوانید و بنویسید. تنها استثنای پذیرفته‌شده مقداردهی اولیه‌ی تنبل است: `if (ref.current === null) ref.current = new ExpensiveThing()`.
+</Callout>
+
+### Ref به نودهای DOM
+
+رایج‌ترین کاربرد Refها دسترسی به یک المان واقعی DOM برای صدا زدن APIهای دستوری مرورگر است: `focus()`، `scrollIntoView()`، `play()`، اندازه‌گیری ابعاد. Object مربوط به Ref را به Attribute `ref` یک تگ JSX بدهید. React بعد از اضافه کردن نود به صفحه `ref.current` را برابر آن نود DOM می‌کند و موقع حذفش دوباره `null`.
+
+```jsx live
+import { useRef } from 'react'
+
+export default function App() {
+  const inputRef = useRef(null)   // در اولین Render برابر null است: <input> هنوز وجود ندارد
+
+  return (
+    <>
+      <input ref={inputRef} defaultValue="Select me" />{' '}
+      {/* بعد از Commit، inputRef.current همان المان واقعی <input> است */}
+      <button onClick={() => inputRef.current.focus()}>Focus</button>{' '}
+      <button onClick={() => inputRef.current.select()}>Select text</button>{' '}
+      <button onClick={() => console.log(inputRef.current.tagName, inputRef.current.value)}>Log node</button>
+    </>
+  )
+}
+```
+
+### Ref Callbackها
+
+به‌جای Object مربوط به Ref می‌توانید یک **تابع** به `ref` بدهید. React وقتی نود وصل می‌شود آن را با نود DOM صدا می‌زند. این وقتی به کار می‌آید که بخواهید همان لحظه کاری با نود *انجام دهید* (اندازه‌اش را بگیرید، Observeش کنید)، یا وقتی تعداد نودها متغیر است، مثلاً یکی برای هر آیتم لیست.
+
+از React 19، یک Ref Callback می‌تواند **یک تابع Cleanup برگرداند** که React موقع جدا شدن نود صدایش می‌زند؛ دقیقاً مثل Cleanup یک Effect. (قبل از React 19، React به‌جای آن Callback را دوباره با `null` صدا می‌زد.)
+
+```jsx live
+import { useCallback, useState } from 'react'
+
+export default function App() {
+  const [show, setShow] = useState(true)
+  const [width, setWidth] = useState(0)
+
+  // useCallback همان تابع را بین Renderها نگه می‌دارد. یک Arrow Function داخل JSX در هر Render
+  // تابع «جدیدی» است و React در هر Render دوباره Cleanup و وصل کردن را اجرا می‌کرد.
+  const measureRef = useCallback((node) => {
+    console.log('attached:', node.tagName)
+    const observer = new ResizeObserver(([entry]) => setWidth(Math.round(entry.contentRect.width)))
+    observer.observe(node)
+    return () => {                               // React 19: وقتی نود حذف شود اجرا می‌شود
+      console.log('cleanup: observer disconnected')
+      observer.disconnect()
+    }
+  }, [])
+
+  return (
+    <>
+      <button onClick={() => setShow((s) => !s)}>{show ? 'Remove' : 'Add'} box</button>
+      {show && (
+        <div
+          ref={measureRef}
+          style={{ resize: 'horizontal', overflow: 'auto', width: 220, marginTop: 8, padding: 8, border: '2px dashed #6366f1' }}
+        >
+          Drag my bottom-right corner · width: {width}px
+        </div>
+      )}
+    </>
+  )
+}
+```
+
+در Console، `attached → cleanup → attached` اضافه‌ی StrictMode را موقع Mount می‌بینید، و بعد با هر بار حذف کادر فقط یک `cleanup`.
+
+### دادن Ref به Component خودتان
+
+Refی که به یک تگ DOM بدهید به آن نود اشاره می‌کند. Refی که به **Component خودتان** بدهید، از React 19 به بعد، یک prop ساده به اسم `ref` است که می‌توانید آن را به هر المانی در داخل پاس دهید:
+
+```jsx
+// React 19: برای Function Componentها ref یک prop معمولی است
+function TextField({ label, ref }) {
+  return <label>{label} <input ref={ref} /></label>
+}
+
+// قبل از React 19 (هنوز کار می‌کند، اما دیگر لازم نیست): پیچیدن در forwardRef
+const TextFieldOld = forwardRef(function TextField({ label }, ref) {
+  return <label>{label} <input ref={ref} /></label>
+})
+```
+
+## useImperativeHandle
+
+پاس دادن Ref، **کل** نود DOM را به والد می‌دهد و والد هر کاری بخواهد با آن می‌کند: Style را عوض می‌کند، فرزندان را حذف می‌کند. اغلب می‌خواهید به‌جای آن یک API کوچک و حساب‌شده در اختیار بگذارید. `useImperativeHandle` به Component اجازه می‌دهد تعیین کند Ref والد چه چیزی دریافت کند.
+
+<Api name="useImperativeHandle()" sig="useImperativeHandle(ref, createHandle, dependencies?)" returns="`undefined`." mutates="yes (Ref والد را برابر Objectی می‌کند که برمی‌گردانید)">
+
+- `ref`: همان prop `ref` که Component شما دریافت کرده.
+- `createHandle`: تابعی بدون آرگومان که Object قابل‌دسترس را برمی‌گرداند؛ معمولاً چند متد.
+- `dependencies` (اختیاری): مثل آرایه‌ی Dependency در Effect. وقتی یکی عوض شود Handle دوباره ساخته می‌شود؛ بدون آرایه در هر Render دوباره ساخته می‌شود.
+
+</Api>
+
+```jsx live
+import { useImperativeHandle, useRef } from 'react'
+
+function FancyInput({ label, ref }) {
+  const inputRef = useRef(null)
+
+  // Ref والد «فقط» این دو متد را می‌گیرد، نه نود <input> را
+  useImperativeHandle(ref, () => ({
+    focus() {
+      inputRef.current.focus()
+    },
+    clear() {
+      inputRef.current.value = ''
+      inputRef.current.focus()
+    },
+  }), [])
+
+  return (
+    <label>
+      {label} <input ref={inputRef} defaultValue="hello" />
+    </label>
+  )
+}
+
+export default function App() {
+  const fancyRef = useRef(null)
+
+  return (
+    <>
+      <FancyInput ref={fancyRef} label="Name:" />{' '}
+      <button onClick={() => fancyRef.current.focus()}>Focus</button>{' '}
+      <button onClick={() => fancyRef.current.clear()}>Clear</button>{' '}
+      <button onClick={() => console.log('the parent sees:', Object.keys(fancyRef.current))}>Inspect</button>
+    </>
+  )
+}
+```
+
+<Callout type="warning">
+Handleهای دستوری یک راه فرار (Escape Hatch) هستند. چیزهایی که می‌شود با props بیانشان کرد، باید با props بیان شوند: `<Modal isOpen={open} />` به‌جای `modalRef.current.open()`. Handle را برای کارهایی نگه دارید که واقعاً دستوری‌اند؛ مثل Focus، اسکرول، پخش/توقف یا «انتخاب همه».
+</Callout>
+
+## useContext
+
+### مشکل: Prop Drilling
+
+بعضی داده‌ها را Componentهای زیادی در عمق‌های مختلف لازم دارند: تم فعلی، کاربر واردشده، زبان. پاس دادن آن‌ها به‌عنوان prop از تک‌تک لایه‌ها، حتی Componentهایی که خودشان استفاده‌اش نمی‌کنند، **Prop Drilling** نام دارد. Componentهای میانی را شلوغ و Refactor را سخت می‌کند.
+
+**Context** اجازه می‌دهد یک والد مقداری را به **کل زیردرختش** بدهد و هر Componentی در آن، هر قدر هم عمیق باشد، مستقیم آن را بخواند.
+
+### سه قدم: ساختن، فراهم کردن، خواندن
+
+<Api name="createContext()" sig="const SomeContext = createContext(defaultValue)" returns="یک Object مربوط به Context. از React 19 می‌شود خودش را مستقیم به‌عنوان Provider Render کرد." mutates="no">
+
+- `defaultValue`: مقداری که Componentها وقتی **هیچ Providerی بالای سرشان** در درخت نیست می‌گیرند. هیچ‌وقت عوض نمی‌شود. یک مقدار جایگزین معنادار بدهید، یا وقتی پیش‌فرض منطقی وجود ندارد `null`.
+- فراهم کردن مقدار: `<SomeContext value={x}>…</SomeContext>` (React 19). `<SomeContext.Provider value={x}>` هنوز کار می‌کند و همان چیزی است که در کدهای قدیمی‌تر می‌بینید.
+
+</Api>
+
+<Api name="useContext()" sig="const value = useContext(SomeContext)" returns="`value` **نزدیک‌ترین** Provider بالای این Component، یا اگر Providerی نباشد مقدار پیش‌فرض." mutates="no">
+
+- `SomeContext`: همان Objectی که `createContext` ساخته، نه خود مقدار.
+- Provider باید **بالای** Component باشد. Providerی که در JSX همان Component است برای خود آن Component حساب نمی‌شود.
+- وقتی مقدار Provider عوض شود (با مقایسه‌ی `Object.is`)، **همه‌ی** Componentهایی که آن Context را می‌خوانند دوباره Render می‌شوند، حتی آن‌هایی که در `memo` پیچیده شده‌اند.
+
+</Api>
+
+```jsx live
+import { createContext, useContext, useState } from 'react'
+
+// ۱. ساختن (وقتی Providerی بالا نباشد، مقدار پیش‌فرض استفاده می‌شود)
+const ThemeContext = createContext('light')
+
+function ThemedButton({ children }) {
+  // ۳. خواندن: مقدار نزدیک‌ترین Provider، هر قدر هم این Component عمیق باشد
+  const theme = useContext(ThemeContext)
+  const dark = theme === 'dark'
+  return (
+    <button style={{ background: dark ? '#222' : '#fff', color: dark ? '#fff' : '#222', marginRight: 6 }}>
+      {children} ({theme})
+    </button>
+  )
+}
+
+function Toolbar() {
+  // Toolbar هیچ prop تمی نمی‌گیرد و پاس نمی‌دهد: Drilling در کار نیست
+  return (
+    <div style={{ margin: '6px 0' }}>
+      <ThemedButton>Save</ThemedButton>
+      <ThemedButton>Cancel</ThemedButton>
+    </div>
+  )
+}
+
+export default function App() {
+  const [theme, setTheme] = useState('light')
+
+  return (
+    <>
+      <button onClick={() => setTheme((t) => (t === 'light' ? 'dark' : 'light'))}>Toggle theme</button>
+
+      {/* ۲. فراهم کردن (React 19: خود Context را Render کنید) */}
+      <ThemeContext value={theme}>
+        <Toolbar />
+        {/* یک Provider تودرتو مقدار را برای زیردرخت خودش عوض می‌کند */}
+        <ThemeContext value="dark">
+          <ThemedButton>Always dark</ThemedButton>
+        </ThemeContext>
+      </ThemeContext>
+
+      {/* بدون Provider در بالا: مقدار پیش‌فرض 'light' */}
+      <div style={{ marginTop: 6 }}>
+        <ThemedButton>Outside</ThemedButton>
+      </div>
+    </>
+  )
+}
+```
+
+### Context و Renderهای دوباره
+
+Context راهی برای **رساندن** داده است، نه یک State Manager. وقتی `value` یک Provider عوض شود، React همه‌ی مصرف‌کننده‌های آن Context را دوباره Render می‌کند و `memo` روی Componentی بین Provider و مصرف‌کننده جلویش را نمی‌گیرد. دو الگو این را ارزان نگه می‌دارد:
+
+```jsx
+// ❌ با هر Render شدن App یک Object جدید → همه‌ی مصرف‌کننده‌ها هر بار دوباره Render می‌شوند
+<AuthContext value={{ user, login, logout }}>
+
+// ✅ تا وقتی user واقعاً عوض نشده همان Object (login/logout باید پایدار باشند، مثلاً با useCallback)
+const auth = useMemo(() => ({ user, login, logout }), [user, login, logout])
+<AuthContext value={auth}>
+```
+
+- **مقدارهای Object را پایدار کنید**؛ با `useMemo` (یا بگذارید [React Compiler](/react/performance) این کار را بکند).
+- **Contextها را بر اساس سرعت تغییرشان جدا کنید**: یک `ThemeContext` که کم عوض می‌شود نباید با یک `MousePositionContext` که مدام عوض می‌شود یک مقدار مشترک داشته باشد. جدا کردن State و dispatch در دو Context یک نسخه‌ی رایج از همین ایده است.
+
+برای داده‌ای که زیاد عوض می‌شود و Componentهای زیادی آن را می‌خوانند، معمولاً یک Store مثل Zustand که اجازه می‌دهد هر Component فقط به تکه‌ی موردنیازش Subscribe کند، از Context بهتر است. مقایسه‌شان در [مدیریت State](/react/state) آمده است.
+
+## useId
+
+Attributeهای دسترس‌پذیری المان‌ها را با ID به هم وصل می‌کنند: `<label htmlFor>`، `aria-describedby`، `aria-labelledby`. یک Component قابل استفاده‌ی دوباره نمی‌تواند ID را ثابت بنویسد، چون دو نمونه از آن در یک صفحه با هم تداخل می‌کنند. `Math.random()` هم کار نمی‌کند: Server Rendering و مرورگر مقدارهای متفاوتی می‌سازند و **Hydration** شکست می‌خورد ([SSR](/react/advanced) را ببینید).
+
+<Api name="useId()" sig="const id = useId()" returns="یک ID یکتا به‌صورت رشته برای این Instance از Component، پایدار بین Renderها و یکسان در Server و Client." mutates="no">
+
+- پارامتری ندارد. یک بار صدایش بزنید و IDهای مرتبط را از آن بسازید: `id + '-hint'`.
+- فرمتش جزئیات پیاده‌سازی است و در React 19.x عوض شده (نسخه‌ی 19.3 رشته‌هایی مثل `_r_1_` می‌سازد). Parseش نکنید.
+- برای **key** لیست‌ها نیست: key باید از داده‌ی شما بیاید.
+- `createRoot(…, { identifierPrefix })` یک پیشوند اضافه می‌کند؛ برای صفحه‌هایی که چند Root از React دارند.
+
+</Api>
+
+```jsx live
+import { useId } from 'react'
+
+function Field({ label, hint, type = 'text' }) {
+  const id = useId()   // برای هر Instance یکتاست؛ در Server و Client همان مقدار
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <label htmlFor={id}>{label}</label>{' '}
+      <input id={id} type={type} aria-describedby={id + '-hint'} />
+      <div id={id + '-hint'} style={{ fontSize: 12, color: '#666' }}>
+        {hint} · id = <code>{id}</code>
+      </div>
+    </div>
+  )
+}
+
+export default function App() {
+  return (
+    <>
+      <Field label="Email" hint="We never share it" type="email" />
+      <Field label="Password" hint="At least 8 characters" type="password" />
+    </>
+  )
+}
+```
+
+روی یک Label کلیک کنید: Focus به اینپوت خودش می‌رود، چون هر `Field` یک ID متفاوت گرفته است.
+
+## useSyncExternalStore
+
+### خواندن داده‌ای که بیرون از React زندگی می‌کند
+
+بعضی Stateها مال React نیستند: یک API مرورگر (`navigator.onLine`، `matchMedia`، URL)، یک Client مربوط به WebSocket، یا Store یک کتابخانه‌ی مدیریت State. React باید حین Render آن‌ها را بخواند و وقتی عوض شدند دوباره Render کند. **`useSyncExternalStore`** راه رسمی Subscribe کردن به چنین **External Store**ی است.
+
+<Api name="useSyncExternalStore()" sig="const snapshot = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot?)" returns="Snapshot فعلی Store." mutates="no">
+
+- `subscribe(callback)`: شروع به گوش دادن به Store کنید و هر وقت ممکن است عوض شده باشد `callback` را صدا بزنید. باید **یک تابع Unsubscribe برگرداند**. اگر در یک Render بعدی تابع `subscribe` متفاوتی بدهید، React دوباره Subscribe می‌کند؛ پس آن را بیرون از Component تعریف کنید یا پایدار نگهش دارید.
+- `getSnapshot()`: مقدار فعلی Store را برگردانید. وقتی چیزی عوض نشده باید **همان مقدار** را برگرداند (طبق `Object.is`). برگرداندن یک Object جدید در هر فراخوانی (`() => ({ ...store })`) باعث می‌شود React فکر کند داده مدام عوض می‌شود و با خطای حلقه‌ی بی‌نهایت متوقف شود.
+- `getServerSnapshot()` (اختیاری، برای Server Rendering و Hydration لازم): مقدار اولیه‌ای که در Server و حین Hydration استفاده می‌شود؛ مثلاً `() => true` برای «آنلاین».
+
+</Api>
+
+```jsx live
+import { useSyncExternalStore } from 'react'
+
+// یک Store کوچک که «بیرون» از React زندگی می‌کند؛ مثل Store در Redux یا Zustand
+function createStore(initialState) {
+  let state = initialState
+  const listeners = new Set()
+  return {
+    getSnapshot: () => state,               // تا وقتی setState جایگزینش نکرده همان Object است
+    subscribe(listener) {
+      listeners.add(listener)
+      return () => listeners.delete(listener)   // React برای Unsubscribe این را صدا می‌زند
+    },
+    setState(update) {
+      state = update(state)                 // یک Object «جدید»، پس getSnapshot چیز متفاوتی برمی‌گرداند
+      listeners.forEach((listener) => listener())  // «چیزی عوض شد، Snapshot را دوباره بخوان»
+    },
+  }
+}
+
+const cartStore = createStore({ items: 0 })
+
+function CartBadge() {
+  // آرگومان سوم حین Server Rendering و Hydration استفاده می‌شود
+  const cart = useSyncExternalStore(cartStore.subscribe, cartStore.getSnapshot, cartStore.getSnapshot)
+  return <b style={{ margin: '0 8px' }}>🛒 {cart.items}</b>
+}
+
+function AddToCart() {
+  return <button onClick={() => cartStore.setState((s) => ({ items: s.items + 1 }))}>Add to cart</button>
+}
+
+export default function App() {
+  // دو Badge و یک دکمه بدون props، بدون Context و بدون State مشترک در والد، داده‌ی مشترک دارند
+  return (
+    <>
+      <CartBadge />
+      <AddToCart />
+      <CartBadge />
+    </>
+  )
+}
+```
+
+### چرا فقط useState و useEffect کافی نیست؟
+
+می‌توانید Store را داخل یک Effect در State کپی کنید، و خیلی از کتابخانه‌های قدیمی همین کار را می‌کردند. مشکل **Tearing** (پاره شدن UI) است. با Concurrent Rendering ([Concurrent React](/react/advanced) را ببینید) React می‌تواند وسط یک Render مکث کند، Store عوض شود و بعد ادامه دهد: Componentهایی که قبل از تغییر Render شده‌اند مقدار قدیمی را نشان می‌دهند و آن‌هایی که بعدش Render شده‌اند مقدار جدید را، و صفحه ناهماهنگ می‌شود. `useSyncExternalStore` با تشخیص تغییر و Render دوباره‌ی همزمان با یک Snapshot یکدست جلوی این را می‌گیرد. برای همین Redux، Zustand و کتابخانه‌های دیگر روی آن ساخته شده‌اند.
+
+## useDebugValue
+
+`useDebugValue(value, format?)` کنار یک **Custom Hook** در React DevTools یک برچسب اضافه می‌کند و روی اپ هیچ اثری ندارد. تابع اختیاری `format` فقط وقتی صدا زده می‌شود که DevTools واقعاً آن Hook را بررسی کند، پس می‌توانید فرمت کردن سنگین را به تعویق بیندازید.
+
+```jsx
+function useOnlineStatus() {
+  const isOnline = useSyncExternalStore(subscribe, () => navigator.onLine, () => true)
+  useDebugValue(isOnline ? 'Online' : 'Offline')   // در DevTools: OnlineStatus: "Online"
+  return isOnline
+}
+```
+
+## Custom Hookها
+
+### بیرون کشیدن منطق در یک Hook مخصوص خودتان
+
+وقتی چند Component به یک منطق Stateدار یکسان نیاز دارند، آن را به تابعی منتقل کنید که اسمش با `use` شروع می‌شود و Hookهای دیگر را صدا می‌زند. این یک **Custom Hook** است. API خاصی از React نیست؛ فقط یک قرارداد نام‌گذاری به‌علاوه‌ی قوانین Hookهاست. پیشوند `use` هم به آدم‌ها و هم به Linter می‌گوید که این تابع از آن قوانین پیروی می‌کند.
+
+```jsx live
+import { useState, useSyncExternalStore } from 'react'
+
+// Custom Hook شماره‌ی ۱: منطق قابل استفاده‌ی دوباره روی useState
+function useToggle(initial = false) {
+  const [on, setOn] = useState(initial)
+  const toggle = () => setOn((v) => !v)
+  return [on, toggle]
+}
+
+// Custom Hook شماره‌ی ۲: یک API مرورگر را با useSyncExternalStore می‌پیچد
+function subscribeToNetwork(callback) {
+  window.addEventListener('online', callback)
+  window.addEventListener('offline', callback)
+  return () => {
+    window.removeEventListener('online', callback)
+    window.removeEventListener('offline', callback)
+  }
+}
+
+function useOnlineStatus() {
+  return useSyncExternalStore(subscribeToNetwork, () => navigator.onLine, () => true)
+}
+
+function Panel({ title }) {
+  const [open, toggle] = useToggle()   // هر Componentی که این Hook را صدا بزند State «خودش» را می‌گیرد
+  const online = useOnlineStatus()
+  return (
+    <div style={{ border: '1px solid #ddd', borderRadius: 8, padding: 8, marginBottom: 6 }}>
+      <button onClick={toggle}>{open ? '▾' : '▸'} {title}</button> {online ? '🟢 online' : '🔴 offline'}
+      {open && <p style={{ margin: '6px 0 0' }}>The content of {title}.</p>}
+    </div>
+  )
+}
+
+export default function App() {
+  return (
+    <>
+      <Panel title="First panel" />
+      <Panel title="Second panel" />
+    </>
+  )
+}
+```
+
+فقط پنل اول را باز کنید: دومی بسته می‌ماند. **Custom Hookها منطق را به اشتراک می‌گذارند، نه State را.** هر فراخوانی، خانه‌های Hook خودش را در Componentی که صدایش زده می‌سازد؛ دقیقاً مثل اینکه آن `useState`ها را همان‌جا نوشته بودید. برای اشتراک *همان* داده بین Componentها، State را بالا ببرید، در Context بگذارید یا از یک External Store استفاده کنید.
+
+### طراحی Custom Hookهای خوب
+
+- **اسمش را بر اساس هدفش بگذارید**، نه پیاده‌سازی‌اش: `useOnlineStatus`، `useDebouncedValue`، `useChatRoom`؛ نه `useEffectOnce` یا `useMount`.
+- **همان چیزی را برگردانید که صدازننده لازم دارد**: یک مقدار تنها (`useOnlineStatus()` → `boolean`)، یک Tuple برای جفت‌های «مقدار و Setter» (`[on, toggle]`)، یا یک Object وقتی فیلدها زیادند (`{ data, error, isLoading }`).
+- **فقط وقتی Hookش کنید که Hook صدا می‌زند.** Helperی که فقط تاریخ را فرمت می‌کند یک تابع معمولی است؛ پیشوند `use` بی‌دلیل صدازننده‌ها را مجبور به رعایت قوانین Hookها می‌کند.
+- **ورودی‌ها را Reactive نگه دارید.** هر چیزی که یک Custom Hook می‌گیرد (`roomId`، `delay`) ممکن است در Render بعدی عوض شود و Hook باید از پسش بربیاید. این بیشتر به Effectها مربوط است و در [Effectها](/react/effects) آمده.
+
+این یک Custom Hook کلاسیک است که در اپ‌های واقعی می‌نویسید (از `localStorage` استفاده می‌کند که دموهای ایزوله به آن دسترسی ندارند، برای همین به شکل کد ساده آمده):
+
+```jsx
+function useLocalStorage(key, initialValue) {
+  // Initializer تنبل: فقط یک بار، در اولین Render، Storage را بخوان
+  const [value, setValue] = useState(() => {
+    const saved = localStorage.getItem(key)
+    return saved !== null ? JSON.parse(saved) : initialValue
+  })
+
+  // هر وقت key یا value عوض شد، دوباره بنویس (Effectها در فصل Effectها توضیح داده شده‌اند)
+  useEffect(() => {
+    localStorage.setItem(key, JSON.stringify(value))
+  }, [key, value])
+
+  return [value, setValue]
+}
+
+const [name, setName] = useLocalStorage('name', '')   // دقیقاً مثل useState استفاده می‌شود
+```
+
+## اشتباهات رایج
+
+<Callout type="mistake">
+**صدا زدن Hook به شکل شرطی یا داخل حلقه**، از جمله بعد از یک `return` زودهنگام. State هر Hook با ترتیب فراخوانی تطبیق داده می‌شود. همه‌ی فراخوانی‌های Hook را در بالاترین سطح نگه دارید و شرط را به داخل Hook یا JSX ببرید.
+</Callout>
+
+<Callout type="mistake">
+**صدا زدن Hook از یک تابع معمولی یا Event Handler.** `onClick={() => { const [x] = useState() }}` نامعتبر است: Hookها فقط وقتی اجرا می‌شوند که React در حال Render یک Component است.
+</Callout>
+
+<Callout type="mistake">
+**انتظار اینکه تغییر Ref صفحه را به‌روز کند.** `ref.current = 5` Render دوباره راه نمی‌اندازد. اگر مقدار در JSX دیده می‌شود، باید State باشد.
+</Callout>
+
+<Callout type="mistake">
+**دادن یک Object جدید به‌عنوان مقدار Context در هر Render.** هر بار که والدِ Provider Render شود، همه‌ی مصرف‌کننده‌ها دوباره Render می‌شوند. مقدار را Memoize کنید یا Context را جدا کنید.
+</Callout>
+
+<Callout type="mistake">
+**برگرداندن Object جدید در هر بار اجرای `getSnapshot`** در `useSyncExternalStore`. React Snapshotها را با `Object.is` مقایسه می‌کند، در هر بررسی تغییر می‌بیند و با خطای "The result of getSnapshot should be cached" متوقف می‌شود. همان Object موجود در Store را برگردانید، یا یک مقدار Primitive.
+</Callout>
+
+## سوالات مصاحبه
+
+<QA q="Hookها چه هستند و چرا معرفی شدند؟" level="junior" n={1}>
+<Answer>
+
+Hookها تابع‌هایی هستند که با `use` شروع می‌شوند و به Function Componentها دسترسی به قابلیت‌های React را می‌دهند: State (`useState`، `useReducer`)، Context، Ref، Effect و غیره. در React 16.8 معرفی شدند تا منطق Stateدار بتواند به‌جای Class در تابع زندگی کند: کدهای مرتبط کنار هم می‌مانند، منطق بدون Componentهای پوششی از طریق Custom Hook قابل استفاده‌ی دوباره می‌شود و سردرگمی `this` در Classها از بین می‌رود.
+
+</Answer>
+</QA>
+
+<QA q="قوانین Hookها چیست و چرا وجود دارند؟" level="mid" n={2}>
+<Answer>
+
+Hookها را فقط در بالاترین سطح صدا بزنید (نه در شرط، حلقه، تابع تودرتو یا بعد از return زودهنگام) و فقط از Function Componentها یا Custom Hookها. React State هر Hook را در یک لیست مخصوص هر Component نگه می‌دارد و هر فراخوانی را **بر اساس ترتیب فراخوانی** به خانه‌اش وصل می‌کند. اگر یک Hook در یک Render اجرا نشود، همه‌ی Hookهای بعدی خانه‌ی اشتباه را می‌خوانند.
+
+</Answer>
+<Deep>
+
+این لیست روی Fiber همان Component است. موقع Mount، React برای هر فراخوانی یک Object مربوط به Hook می‌سازد؛ موقع Update همان لیست را با همان ترتیب طی می‌کند. برای همین React می‌تواند "Rendered fewer hooks than expected" را تشخیص دهد و برای همین قانون Linter یعنی `react-hooks/rules-of-hooks` وجود دارد. استثنا `use` است که به همان شکل در این لیست ذخیره نمی‌شود و می‌شود آن را شرطی صدا زد.
+
+</Deep>
+</QA>
+
+<QA q="چه وقتی به‌جای useState از useReducer استفاده می‌کنید؟" level="mid" n={3}>
+<Answer>
+
+وقتی چند تکه State با هم عوض می‌شوند یا انواع زیادی از Update وجود دارد. Reducer همه‌ی تغییرات را در یک تابع خالص و راحت‌تست متمرکز می‌کند و Handlerها فقط Actionهایی را dispatch می‌کنند که اتفاق را توصیف می‌کنند. برای چند مقدار مستقل `useState` ساده‌تر است. از نظر Performance فرقی ندارند: `useState` با یک Reducer پیاده‌سازی شده است.
+
+</Answer>
+<FollowUp>
+
+چرا پاس دادن `dispatch` از طریق Context راحت است؟ هویتش هیچ‌وقت عوض نمی‌شود؛ پس اگر State و dispatch را در دو Context جدا بگذارید، Componentهایی که فقط dispatch می‌کنند با عوض شدن State لازم نیست دوباره Render شوند.
+
+</FollowUp>
+</QA>
+
+<QA q="فرق useRef و useState چیست؟" level="junior" n={4}>
+<Answer>
+
+هر دو بین Renderها باقی می‌مانند. Update کردن State یک Render دوباره راه می‌اندازد و مقدار جدید در Render بعدی دیده می‌شود. Update کردن `ref.current` فوری و Mutable است و Render دوباره راه **نمی‌اندازد**. State را برای هر چیزی که روی صفحه دیده می‌شود استفاده کنید و Ref را برای مقدارهایی که UI به آن‌ها وابسته نیست (شناسه‌ی Timer، نودهای DOM، Instanceها) یا برای دسترسی به المان‌های DOM.
+
+</Answer>
+<Mistake>
+
+خواندن یا نوشتن `ref.current` حین Render برای «جلوگیری از Render دوباره». این Render را ناخالص می‌کند و صفحه ممکن است مقدارهای کهنه نشان دهد.
+
+</Mistake>
+</QA>
+
+<QA q="آیا دو Component که از یک Custom Hook استفاده می‌کنند State مشترک دارند؟" level="junior" n={5}>
+<Answer>
+
+نه. Custom Hook *منطق* را به اشتراک می‌گذارد. هر فراخوانی Hookهای داخلی‌اش را درون Component صدازننده اجرا می‌کند و آن Component State مستقل خودش را می‌گیرد؛ انگار کد همان‌جا نوشته شده باشد. برای اشتراک داده، State را بالا ببرید، از Context یا از یک External Store استفاده کنید.
+
+</Answer>
+</QA>
+
+<QA q="Context چه اثری روی Renderهای دوباره دارد و چطور بهینه‌اش می‌کنید؟" level="senior" n={6}>
+<Answer>
+
+وقتی `value` یک Provider طبق `Object.is` عوض شود، هر Componentی که آن Context را می‌خواند دوباره Render می‌شود و `memo` در میانه جلویش را نمی‌گیرد. پس دادن یک Object Literal جدید در هر Render یعنی همه‌ی مصرف‌کننده‌ها با هر Render والد دوباره Render می‌شوند. برای بهینه‌سازی: مقدار را Memoize کنید (`useMemo`، Callbackهای پایدار یا React Compiler)، Contextها را بر اساس سرعت تغییر جدا کنید (یا State را از dispatch جدا کنید) و داده‌ی مشترکِ پرتغییر را به یک Store با Subscription مبتنی بر Selector منتقل کنید.
+
+</Answer>
+<FollowUp>
+
+چرا یک مصرف‌کننده نمی‌تواند فقط به یک فیلد از مقدار Context گوش دهد؟ Context، Selector ندارد: React فقط می‌داند که کل مقدار عوض شده. کتابخانه‌هایی مثل Zustand (که روی `useSyncExternalStore` ساخته شده) به‌جایش فقط تکه‌ی انتخاب‌شده را مقایسه می‌کنند.
+
+</FollowUp>
+</QA>
+
+<QA q="useSyncExternalStore چیست و چرا فقط useEffect با useState کافی نیست؟" level="senior" n={7}>
+<Answer>
+
+یک Component را با گرفتن `subscribe`، `getSnapshot` و به‌شکل اختیاری `getServerSnapshot` به یک Store بیرون از React وصل می‌کند. کپی کردن Store در State از داخل یک Effect، با Concurrent Rendering ممکن است باعث **Tearing** شود: بخش‌هایی از UI با نسخه‌های متفاوتی از Store Render می‌شوند. `useSyncExternalStore` تغییر را حین Render تشخیص می‌دهد و یک Render دوباره‌ی همزمان و یکدست را اجبار می‌کند. از Server Rendering هم از طریق `getServerSnapshot` پشتیبانی می‌کند.
+
+</Answer>
+</QA>
+
+<QA q="چرا برای ID به‌جای Math.random() یا یک شمارنده‌ی سراسری از useId استفاده می‌کنیم؟" level="mid" n={8}>
+<Answer>
+
+IDها باید برای هر Instance یکتا **و** در Server و Client یکسان باشند، وگرنه Hydration شکست می‌خورد. `Math.random()` در دو محیط فرق می‌کند. یک شمارنده‌ی سراسری به ترتیب Render وابسته است که می‌تواند بین Server و Client (و با Streaming) متفاوت باشد. `useId` ID را از جایگاه Component در درخت می‌سازد، پس در هر دو سمت پایدار است.
+
+</Answer>
+</QA>
+
+<QA q="والد چطور می‌تواند یک متد از Component فرزند را صدا بزند؟" level="mid" n={9}>
+<Answer>
+
+یک Ref به فرزند بدهید. در React 19، `ref` یک prop معمولی است، پس فرزند می‌تواند آن را به یک المان DOM پاس دهد (قبل از 19 به `forwardRef` نیاز بود). برای در اختیار گذاشتن یک API محدود به‌جای کل نود، فرزند `useImperativeHandle(ref, () => ({ focus, clear }))` را صدا می‌زند. برای هر چیزی که می‌شود اعلانی بیانش کرد props را ترجیح دهید و Handleهای دستوری را برای Focus، اسکرول، رسانه و کارهای مشابه نگه دارید.
+
+</Answer>
+</QA>
+
+## جمع‌بندی
+
+<Recap>
+
+- Hookها تابع‌های `use*` هستند که به Function Componentها State، Context، Ref و Effect می‌دهند؛ Custom Hookها منطق Stateدار را قابل استفاده‌ی دوباره می‌کنند.
+- قوانین: Hookها فقط در بالاترین سطح و فقط در Componentها یا Custom Hookها. React State هر Hook را بر اساس ترتیب فراخوانی تطبیق می‌دهد.
+- `useState`: برای مقداردهی تنبل یک تابع بدهید؛ مقدار جایگزین می‌شود، ادغام نمی‌شود؛ مقدار یکسان باعث صرف‌نظر از Render می‌شود؛ و State مال یک جایگاه در درخت است (با عوض کردن `key` Reset می‌شود).
+- مقدارهای مشتق را حین Render حساب کنید، به‌جای ذخیره‌ی کپی آن‌ها در State.
+- `useReducer(reducer, initialArg, init?)` Updateهای زیاد و مرتبط را در یک تابع خالص متمرکز می‌کند؛ `dispatch` پایدار است.
+- `useRef` یک مقدار Mutable نگه می‌دارد که بین Renderها می‌ماند بدون اینکه Render راه بیندازد؛ حین Render به `ref.current` دست نزنید.
+- Refهای DOM دسترسی به نودها را می‌دهند؛ Ref Callbackها در React 19 می‌توانند Cleanup برگردانند و `ref` یک prop معمولی برای Function Componentهاست.
+- `useImperativeHandle` به‌جای کل نود DOM یک API دستوری کوچک در اختیار می‌گذارد.
+- Context جلوی Prop Drilling را می‌گیرد؛ با عوض شدن مقدار همه‌ی مصرف‌کننده‌ها دوباره Render می‌شوند، پس مقدارها را Memoize و Contextها را جدا کنید.
+- `useId` IDهای سازگار با Hydration می‌سازد؛ `useSyncExternalStore` بدون Tearing به Storeهای بیرونی Subscribe می‌کند.
+
+</Recap>
