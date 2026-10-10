@@ -56,7 +56,8 @@ Full design in `PLAN.md` (read only if needed). Writing standard: skill `handboo
   Hidden pane: live-demo consoles are mirrored into the parent page text (`innerText.split('
 Console
 ')`).
-  Next: react/performance.
+  ✅ react/performance (fa+en, 8 live demos: Profiler, memo, useMemo, virtualization, lazy, Activity).
+  Next: react/react-19.
 - JWT (user request 2026-10-10): cover JWT in the post-React parts — full treatment in
   architecture/auth-security-performance (structure header.payload.signature, base64url, signing HS256 vs RS256,
   claims exp/iat/nbf/aud/iss, verification, access + refresh tokens and rotation, where to store: httpOnly

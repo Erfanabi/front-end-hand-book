@@ -415,6 +415,10 @@ const descriptions: Record<string, Localized> = {
     fa: 'Effect برای همگام‌سازی با سیستم‌های بیرونی، useEffect و سه شکل Dependency، Cleanup، اجرای دوباره در StrictMode، useLayoutEffect و useInsertionEffect، Stale Closure، useEffectEvent، Race Condition در Fetch و جاهایی که Effect لازم نیست.',
     en: "Effects as synchronization with external systems, useEffect and its three dependency forms, cleanup, the StrictMode double run, useLayoutEffect and useInsertionEffect, stale closures, useEffectEvent, fetch race conditions, and when you don't need an Effect.",
   },
+  'react/performance': {
+    fa: 'اندازه‌گیری با Profiler، پایین بردن State و ترفند children، memo، useMemo و useCallback، React Compiler، Context و Performance، Virtualization، Code Splitting با lazy و Activity.',
+    en: 'Measuring with the Profiler, moving state down and the children trick, memo, useMemo and useCallback, React Compiler, context performance, virtualization, code splitting with lazy, and Activity.',
+  },
 }
 
 for (const part of parts) {

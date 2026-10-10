@@ -1,0 +1,658 @@
+## چرا برنامه‌های React کند می‌شوند
+
+React برای بیشتر صفحه‌ها به‌طور پیش‌فرض سریع است. وقتی برنامه‌ای *واقعاً* کند به نظر می‌رسد، علت تقریباً همیشه یکی از این چهار مورد است:
+
+1. **Render بیش از حد**: یک تغییر State در بالای درخت صدها Component را Re-render می‌کند که لازم نبود عوض شوند ([چه چیزی باعث Re-render می‌شود](/react/rendering)).
+2. **Render سنگین**: یک Component در هر Render کار سنگینی می‌کند (مرتب کردن ۱۰٬۰۰۰ ردیف، Parse کردن Markdown).
+3. **DOM بیش از حد**: Render کردن ۵٬۰۰۰ آیتم لیست یعنی ۵٬۰۰۰ DOM Node، و مرورگر وقتش را صرف [Layout و Paint](/browser/rendering-pipeline) می‌کند، نه React.
+4. **JavaScript زیاد در شروع کار**: کل برنامه قبل از نمایش اولین صفحه دانلود و Parse می‌شود.
+
+هر مشکل راه‌حل خودش را دارد و استفاده از راه‌حل اشتباه (مثلاً پیچیدن همه چیز در `useMemo`) پیچیدگی اضافه می‌کند بدون اینکه چیزی سریع‌تر شود. پس اولین قانون Performance در React این است: **اول اندازه بگیرید، بعد همان چیزی را درست کنید که اندازه گرفتید.**
+
+## اندازه‌گیری
+
+### Profiler در React DevTools
+
+تب **Profiler** در React DevTools یک جلسه را ضبط می‌کند و هر Commit را به شکل یک ستون نشان می‌دهد. برای هر Commit نشان می‌دهد کدام Componentها Render شدند، هر کدام چقدر طول کشید و (اگر گزینه‌ی «Record why each component rendered» را در تنظیمات روشن کنید) *چرا*: «props changed: onClick»، «hook 2 changed»، «parent rendered».
+
+روال کار:
+
+<Steps>
+<Step title="تعامل کند را ضبط کنید">
+Record را بزنید، کار کند را انجام دهید (در جعبه‌ی جستجو تایپ کنید) و متوقف کنید.
+</Step>
+<Step title="Commit پرهزینه را پیدا کنید">
+ستون‌های بلند یا زرد Commitهای کندند. روی یکی کلیک کنید تا Flame Graph را ببینید: نوارهای پهن Componentهایی‌اند که زیاد طول کشیدند و نوارهای خاکستری اصلاً Render نشدند.
+</Step>
+<Step title="بپرسید هر Component چرا Render شد">
+اگر Componentی Render شده ولی خروجی‌اش عوض نشده، کاندید یک اصلاح ساختاری یا `memo` است. اگر یک Component به‌تنهایی کند است، کاندید `useMemo` یا یک الگوریتم ارزان‌تر است.
+</Step>
+<Step title="درست کنید و دوباره ضبط کنید">
+عددها را مقایسه کنید. اگر چیزی بهتر نشد، تغییر را برگردانید: فقط پیچیدگی اضافه کرده.
+</Step>
+</Steps>
+
+هر وقت می‌توانید **Build تولید (Production)** را اندازه بگیرید. Build توسعه خیلی کندتر است (چک‌های اضافه، Render دوباره‌ی StrictMode)، پس مشکل‌ها را بزرگ‌تر از واقعیت نشان می‌دهد.
+
+### Component `<Profiler>`
+
+برای اندازه‌گیری داخل کد (یا فرستادن زمان‌ها به Analytics)، یک زیردرخت را در `<Profiler>` بپیچید:
+
+<Api name="<Profiler>" sig="<Profiler id={string} onRender={callback}>…</Profiler>" returns="فرزندانش." mutates="خیر">
+
+- `id`: رشته‌ای که این بخش از UI را در Callback مشخص می‌کند.
+- `onRender(id, phase, actualDuration, baseDuration, startTime, commitTime)`: بعد از هر Commitی که زیردرخت در آن Render شده صدا زده می‌شود.
+  - `phase`: `"mount"`، `"update"` یا `"nested-update"` (به‌روزرسانی‌ای که از یک Layout Effect زمان‌بندی شده).
+  - `actualDuration`: میلی‌ثانیه‌هایی که Render زیردرخت در این Commit طول کشید. Memoization این عدد را کوچک‌تر می‌کند.
+  - `baseDuration`: تخمین Render کل زیردرخت بدون هیچ Memoization؛ یعنی بدترین حالت.
+  - `startTime` / `commitTime`: زمانی که React شروع به Render این به‌روزرسانی کرد و زمانی که Commitش کرد.
+- Profiling سربار دارد، برای همین در Build تولید معمولی خاموش است؛ یک Build مخصوص Profiling روشنش می‌کند.
+
+</Api>
+
+```jsx live
+import { Profiler, useState } from 'react'
+
+function SlowList({ n }) {
+  const start = performance.now()
+  while (performance.now() - start < 20) {} // فرض کنید هر Render بیست میلی‌ثانیه هزینه دارد
+  return <p>{n} items</p>
+}
+
+export default function App() {
+  const [count, setCount] = useState(0)
+  const onRender = (id, phase, actual, base) =>
+    console.log(`${id} ${phase}: actual ${actual.toFixed(1)}ms, base ${base.toFixed(1)}ms`)
+  return (
+    <Profiler id="list" onRender={onRender}>
+      <button onClick={() => setCount(count + 1)}>re-render ({count})</button>
+      <SlowList n={100} />
+    </Profiler>
+  )
+}
+```
+
+هر کلیک حدود ۲۰ میلی‌ثانیه هزینه دارد (در حالت توسعه با StrictMode حدود ۴۰، چون Component دو بار اجرا می‌شود). بخش‌های بعدی این هزینه را حذف می‌کنند.
+
+## قبل از memo، ساختار را درست کنید
+
+ارزان‌ترین Render آن است که اصلاً اتفاق نیفتد. دو تغییر ساختاری بیشتر Renderهای غیرضروری را بدون هیچ Memoizationی حذف می‌کنند.
+
+### State را پایین ببرید
+
+اگر فقط بخش کوچکی از یک Component بزرگ از یک State استفاده می‌کند، آن State را به یک Component کوچک منتقل کنید. آن وقت به‌روزرسانی‌ها فقط همان Component کوچک را Re-render می‌کنند.
+
+```jsx live
+import { useState } from 'react'
+
+function ExpensiveTree() {
+  const start = performance.now()
+  while (performance.now() - start < 30) {} // یک زیردرخت کند
+  console.log('ExpensiveTree rendered')
+  return <p>I am slow to render.</p>
+}
+
+// ❌ State رنگ در App است، پس تایپ کردن ExpensiveTree را هم Re-render می‌کند
+function Before() {
+  const [color, setColor] = useState('red')
+  return (
+    <div>
+      <input value={color} onChange={(e) => setColor(e.target.value)} />
+      <p style={{ color }}>Hello</p>
+      <ExpensiveTree />
+    </div>
+  )
+}
+
+// ✅ State به Form رفت؛ ExpensiveTree دیگر فرزند آن نیست
+function Form() {
+  const [color, setColor] = useState('red')
+  return (
+    <>
+      <input value={color} onChange={(e) => setColor(e.target.value)} />
+      <p style={{ color }}>Hello</p>
+    </>
+  )
+}
+function After() {
+  return (
+    <div>
+      <Form />
+      <ExpensiveTree />
+    </div>
+  )
+}
+
+export default function App() {
+  const [fixed, setFixed] = useState(false)
+  return (
+    <>
+      <label>
+        <input type="checkbox" checked={fixed} onChange={(e) => { console.clear(); setFixed(e.target.checked) }} /> state moved down
+      </label>
+      {fixed ? <After /> : <Before />}
+    </>
+  )
+}
+```
+
+وقتی تیک خاموش است در input تایپ کنید: هر کلید `ExpensiveTree rendered` چاپ می‌کند و input کند می‌شود. تیک را بزنید: تایپ کردن چیزی چاپ نمی‌کند.
+
+### محتوا را بالا ببرید (به‌عنوان children پاس دهید)
+
+وقتی State باید در والد بماند چون *پوسته‌ی* والد از آن استفاده می‌کند، بخش سنگین را به‌عنوان `children` پاس دهید. آن Element را پدربزرگ می‌سازد، پس وقتی State پوسته عوض می‌شود prop `children` همان Object قبلی است و React از آن رد می‌شود. این ترفند قدم به قدم در [ترفند children به‌عنوان prop](/react/rendering) توضیح داده شده.
+
+```jsx
+function ColorPicker({ children }) {
+  const [color, setColor] = useState('red')
+  return (
+    <div style={{ color }}>
+      <input value={color} onChange={(e) => setColor(e.target.value)} />
+      {children /* همان Element Render قبلی ← رد می‌شود */}
+    </div>
+  )
+}
+
+<ColorPicker>
+  <ExpensiveTree />
+</ColorPicker>
+```
+
+## memo، useMemo و useCallback
+
+وقتی نمی‌شود ساختار را عوض کرد، **Memoization** (به خاطر سپردن نتیجه) به React اجازه می‌دهد وقتی ورودی‌ها یکی‌اند از نتیجه‌ی قبلی دوباره استفاده کند. هر سه ابزار ورودی‌ها را با [`Object.is`](/javascript/types-coercion) مقایسه می‌کنند.
+
+| ابزار | چه چیزی را به خاطر می‌سپارد | از چه چیزی رد می‌شود |
+| --- | --- | --- |
+| `memo(Component)` | آخرین خروجی Render یک Component | Re-render وقتی props برابرند |
+| `useMemo(fn, deps)` | نتیجه‌ی یک محاسبه | محاسبه‌ی دوباره وقتی deps برابرند |
+| `useCallback(fn, deps)` | یک Object تابع | ساختن هویت جدید برای تابع وقتی deps برابرند |
+
+### memo
+
+<Api name="memo()" sig="const Memoized = memo(Component, arePropsEqual?)" returns="یک Component جدید که `Component` را Render می‌کند ولی وقتی propsش عوض نشده از Re-render رد می‌شود." mutates="خیر">
+
+- `Component`: Componentی که می‌خواهید Memoize کنید (یک Function Component یا Componentی که با `forwardRef` ساخته شده).
+- `arePropsEqual(prevProps, nextProps)` (اختیاری): اگر props برابرند `true` برگردانید تا از Render رد شود. پیش‌فرض: مقایسه‌ی هر prop با `Object.is` (مقایسه‌ی **سطحی** یا Shallow). تابع سفارشی باید *همه‌ی* propsها، از جمله تابع‌ها، را مقایسه کند وگرنه Component داده‌ی کهنه نشان می‌دهد.
+- Component Memoizeشده وقتی State خودش یا Contextی که می‌خواند عوض شود **باز هم Re-render می‌شود**. `memo` فقط Re-renderهایی را نادیده می‌گیرد که والد با props برابر باعثشان شده.
+
+</Api>
+
+```jsx live
+import { memo, useState } from 'react'
+
+const Row = memo(function Row({ label }) {
+  console.log('render Row', label)
+  return <li>{label}</li>
+})
+
+export default function App() {
+  const [count, setCount] = useState(0)
+  return (
+    <>
+      <button onClick={() => { console.clear(); setCount(count + 1) }}>parent re-render ({count})</button>
+      <ul>
+        <Row label="apple" />
+        <Row label="banana" />
+      </ul>
+    </>
+  )
+}
+```
+
+بعد از Render اول، کلیک کردن چیزی چاپ نمی‌کند: `label` همان رشته است، پس از هر دو ردیف رد می‌شود.
+
+### چرا memo بی‌صدا از کار می‌افتد
+
+`memo` props را با `Object.is` مقایسه می‌کند. یک رشته یا عدد با خودش برابر است. اما Object، آرایه یا تابعی که حین Render ساخته می‌شود **در هر Render یک مقدار جدید است**، پس مقایسه شکست می‌خورد و `memo` هیچ کاری نمی‌کند.
+
+```jsx live
+import { memo, useCallback, useMemo, useState } from 'react'
+
+const Chart = memo(function Chart({ options, onSelect }) {
+  console.log('render Chart')
+  return <button onClick={() => onSelect(options.type)}>chart: {options.type}</button>
+})
+
+export default function App() {
+  const [count, setCount] = useState(0)
+  const [stable, setStable] = useState(false)
+
+  // در هر Render یک Object و یک تابع جدید…
+  const freshOptions = { type: 'bar' }
+  const freshOnSelect = (t) => console.log('selected', t)
+  // …یا همان قبلی‌ها تا وقتی deps عوض نشده
+  const memoOptions = useMemo(() => ({ type: 'bar' }), [])
+  const memoOnSelect = useCallback((t) => console.log('selected', t), [])
+
+  return (
+    <>
+      <label>
+        <input type="checkbox" checked={stable} onChange={(e) => setStable(e.target.checked)} /> stable props
+      </label>{' '}
+      <button onClick={() => { console.clear(); setCount(count + 1) }}>parent re-render ({count})</button>
+      <p>
+        <Chart options={stable ? memoOptions : freshOptions} onSelect={stable ? memoOnSelect : freshOnSelect} />
+      </p>
+    </>
+  )
+}
+```
+
+وقتی تیک خاموش است، هر کلیک `render Chart` چاپ می‌کند با اینکه در `memo` پیچیده شده. با تیک روشن، از آن رد می‌شود. کار واقعی `useMemo` و `useCallback` در بیشتر کدها همین است: **پایدار نگه داشتن props برای یک فرزند Memoizeشده یا برای Dependencyهای یک Effect**.
+
+همین دام `children` را هم می‌گیرد: `<Memoized><span /></Memoized>` در هر Render یک Element جدید `<span />` می‌سازد، پس `Memoized` همیشه Re-render می‌شود.
+
+### useMemo
+
+<Api name="useMemo()" sig="const value = useMemo(calculateValue, dependencies)" returns="نتیجه‌ی `calculateValue()` از آخرین باری که Dependencyها عوض شدند." mutates="خیر">
+
+- `calculateValue`: یک تابع **خالص** بدون آرگومان. React آن را در Render اول صدا می‌زند و دوباره فقط وقتی یکی از Dependencyها (طبق `Object.is`) عوض شده باشد. در StrictMode دو بار صدا زده می‌شود تا خالص بودنش چک شود.
+- `dependencies`: همه‌ی مقدارهای Reactive که داخل `calculateValue` استفاده شده‌اند. الزامی است: بدون آن مقدار در هر Render دوباره حساب می‌شود.
+- یک **راهنمایی Performance است، نه تضمین**: React ممکن است Cache را دور بریزد (مثلاً وقتی Component در اولین Mount، Suspend می‌شود)، پس کد شما باید بدون آن هم درست کار کند.
+
+</Api>
+
+برای محاسبه‌ای از آن استفاده کنید که به‌طور قابل اندازه‌گیری کند است (یک آستانه‌ی رایج: ۱ میلی‌ثانیه یا بیشتر در Profiler) یا برای پایدار نگه داشتن هویت یک Object:
+
+```jsx live
+import { useMemo, useState } from 'react'
+
+const items = Array.from({ length: 20000 }, (_, i) => `item ${i}`)
+
+export default function App() {
+  const [query, setQuery] = useState('')
+  const [dark, setDark] = useState(false)
+
+  const filtered = useMemo(() => {
+    const start = performance.now()
+    const result = items.filter((s) => s.includes(query))
+    console.log(`filtered in ${(performance.now() - start).toFixed(1)}ms`)
+    return result
+  }, [query]) // عوض کردن Theme دوباره فیلتر نمی‌کند
+
+  return (
+    <div style={{ background: dark ? '#222' : '#fff', color: dark ? '#eee' : '#222', padding: 8 }}>
+      <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="filter" />{' '}
+      <button onClick={() => setDark(!dark)}>toggle theme</button>
+      <p>{filtered.length} matches</p>
+    </div>
+  )
+}
+```
+
+تایپ کردن یک زمان جدید چاپ می‌کند؛ عوض کردن Theme چیزی چاپ نمی‌کند چون `query` عوض نشده.
+
+### useCallback
+
+<Api name="useCallback()" sig="const fn = useCallback(callback, dependencies)" returns="همان Object تابع `callback` تا وقتی Dependencyها عوض نشده‌اند." mutates="خیر">
+
+- `callback`: تابعی که می‌خواهید Cache شود. React آن را در Render اول برمی‌گرداند (صدایش نمی‌زند) و در Renderهای بعدی تابع ذخیره‌شده‌ی قبلی را برمی‌گرداند تا وقتی یک Dependency عوض شود.
+- `dependencies`: همه‌ی مقدارهای Reactiveی که تابع می‌خواند.
+- `useCallback(fn, deps)` دقیقاً همان `useMemo(() => fn, deps)` است.
+- تابع را سریع‌تر نمی‌کند. فقط **هویتش** را نگه می‌دارد، که فقط وقتی مهم است که چیزی آن را مقایسه کند: یک فرزند `memo`، Dependency یک Effect یا Dependency یک Hook دیگر.
+
+</Api>
+
+برای اینکه Callback به چیزهای کمتری وابسته باشد از Updater Function استفاده کنید: `useCallback(() => setItems((xs) => [...xs, x]), [x])` به `items` در Dependencyها نیاز ندارد.
+
+### Memoization کی می‌ارزد
+
+| می‌ارزد | نمی‌ارزد |
+| --- | --- |
+| Componentی که زیاد با props یکسان Re-render می‌شود و Renderش (طبق اندازه‌گیری) کند است | Componentهای ارزان: مقایسه‌ی props تقریباً به اندازه‌ی Render هزینه دارد |
+| مقدار یا تابعی که به یک فرزند `memo` پاس داده می‌شود یا Dependency یک Effect است | تابعی که به یک DOM Element ساده (`<button onClick>`) پاس می‌شود: کسی مقایسه‌اش نمی‌کند |
+| محاسبه‌ای که در هر Render ۱ میلی‌ثانیه یا بیشتر طول می‌کشد | ریاضی ساده، ساختن رشته، آرایه‌های کوچک |
+| لیست‌های بزرگ که هر ردیف Memoize شده و props پایدارند | propsی که به هر حال در هر Render عوض می‌شوند |
+
+Memoization هزینه دارد: حافظه برای مقدارهای Cacheشده، کار مقایسه در هر Render، و کدی سخت‌خوان‌تر با آرایه‌های Dependency که ممکن است غلط شوند. برای همین تیم React کامپایلری ساخت که این کار را خودکار انجام دهد.
+
+## React Compiler
+
+**React Compiler** ابزاری در زمان Build است (یک Babel Plugin به نام `babel-plugin-react-compiler` که از نسخه‌ی 1.0 در اکتبر ۲۰۲۵ پایدار است) که Componentها و Hookهای شما را تحلیل می‌کند و **Memoization را خودکار اضافه می‌کند**. شما کد ساده می‌نویسید؛ خروجی کامپایل‌شده از کارهایی که ورودی‌شان عوض نشده رد می‌شود، آن هم با دانه‌بندی ریزتر از چیزی که دستی می‌نوشتید.
+
+### چه کار می‌کند
+
+این Component را در نظر بگیرید:
+
+```jsx
+function TodoList({ todos, filter }) {
+  const visible = todos.filter((t) => t.status === filter)
+  const onClear = () => clearTodos(filter)
+  return (
+    <>
+      <List items={visible} />
+      <button onClick={onClear}>Clear</button>
+    </>
+  )
+}
+```
+
+کامپایلر چیزی شبیه این تولید می‌کند (ساده‌شده). `_c(n)` یک آرایه‌ی Cache با `n` خانه برای هر Component می‌سازد که مثل یک Hook روی Fiber ذخیره می‌شود:
+
+```jsx
+import { c as _c } from 'react/compiler-runtime'
+
+function TodoList({ todos, filter }) {
+  const $ = _c(5)
+  let visible
+  if ($[0] !== todos || $[1] !== filter) {
+    // فقط وقتی یک ورودی عوض شده دوباره حساب کن
+    visible = todos.filter((t) => t.status === filter)
+    $[0] = todos
+    $[1] = filter
+    $[2] = visible
+  } else {
+    visible = $[2]
+  }
+  // …همین کار برای onClear و خود JSX، تا وقتی چیزی عوض نشده
+  // <List> همان Object props و همان Element را بگیرد
+}
+```
+
+چون کامپایلر **Elementهای JSX** را هم Memoize می‌کند، Element فرزندی که عوض نشده همان Object دفعه‌ی قبل است و React از آن رد می‌شود؛ یعنی بیشتر اثر `memo` را بدون پیچیدن Componentها می‌گیرید.
+
+### قانون‌هایی که به آن‌ها تکیه می‌کند
+
+کامپایلر فرض می‌کند کد شما [قانون‌های React](/react/fundamentals) را رعایت می‌کند: Componentها و Hookها حین Render خالص‌اند، props و State هیچ‌وقت مستقیم تغییر (Mutate) داده نمی‌شوند، Hookها بدون شرط صدا زده می‌شوند. وقتی نتواند ثابت کند یک Component امن است، **از آن Component رد می‌شود** و همان‌طور که بود رهایش می‌کند؛ پس کد سالم را خراب نمی‌کند، فقط بهینه‌اش نمی‌کند.
+
+قانون‌های ESLint در `eslint-plugin-react-hooks` (Preset به نام `recommended` از نسخه‌ی 6) الگوهایی را گزارش می‌کنند که باعث می‌شوند کامپایلر کنار بکشد؛ مثل Mutate کردن props، خواندن `ref.current` حین Render، یا صدا زدن بی‌شرط `setState` حین Render.
+
+### راه‌اندازی و کنترل
+
+```js
+// vite.config.js
+import react from '@vitejs/plugin-react'
+
+export default {
+  plugins: [
+    react({
+      babel: { plugins: [['babel-plugin-react-compiler', { /* options */ }]] },
+    }),
+  ],
+}
+```
+
+- **`compilationMode`**: `'infer'` (پیش‌فرض: تابع‌هایی را کامپایل می‌کند که شبیه Component یا Hook هستند)، `'annotation'` (فقط تابع‌هایی که با `"use memo"` علامت خورده‌اند) یا `'all'`.
+- **`target`**: پیش‌فرض `'19'`. برای React 17 یا 18 آن را `'17'`/`'18'` بگذارید و `react-compiler-runtime` را نصب کنید که تابع `c` را که آن نسخه‌ها ندارند فراهم می‌کند.
+- **`"use memo"`**: یک Directive در ابتدای تابع برای اضافه کردنش به کامپایل (با حالت `'annotation'` برای استفاده‌ی تدریجی به درد می‌خورد).
+- **`"use no memo"`**: Directiveی برای بیرون گذاشتن یک تابع؛ یک راه فرار موقت تا وقتی Componentی را که بعد از کامپایل درست کار نمی‌کند اصلاح کنید.
+
+```jsx
+function LegacyWidget() {
+  'use no memo' // کامپایلر به این تابع دست نمی‌زند
+  // ...
+}
+```
+
+### هنوز memo، useMemo و useCallback لازم است؟
+
+با کامپایلر، برای کد جدید معمولاً نه. در دو حالت نگهشان دارید: وقتی برای Dependency یک Effect به هویت پایدار **تضمین‌شده** نیاز دارید (Memoization کامپایلر ممکن است با مال شما فرق کند)، و در کدی که کامپایلر از آن رد می‌شود. `useMemo`/`useCallback`های موجود را می‌توانید نگه دارید: کامپایلر حفظشان می‌کند و حذفشان خروجی کامپایل را عوض می‌کند، پس فقط با تست حذفشان کنید.
+
+<Callout type="interview">
+«React Compiler چه کار می‌کند؟» جواب قوی: یک Babel Plugin در زمان Build است که بر اساس تحلیل ایستای جریان داده، Componentها، Hookها، مقدارها، Callbackها و JSX را خودکار Memoize می‌کند، پس به‌ندرت `memo`، `useMemo` یا `useCallback` می‌نویسید. به قانون‌های React تکیه دارد، از Componentهایی که نمی‌تواند امن بودنشان را ثابت کند رد می‌شود، با `"use no memo"` می‌شود هر تابع را بیرون گذاشت و با React 17 به بعد کار می‌کند (19 به‌صورت بومی).
+</Callout>
+
+## Context و Performance
+
+هر Componentی که با `useContext` یک Context را می‌خواند، با عوض شدن `value` در Provider دوباره Render می‌شود و `memo` جلویش را نمی‌گیرد ([Context و Re-render](/react/hooks)). سه راه برای ارزان نگه داشتنش:
+
+1. **Object مقدار را Memoize کنید.** `<Ctx value={{ user, login }}>` هر بار که Provider، Render می‌شود یک Object جدید می‌سازد، پس همه‌ی مصرف‌کننده‌ها حتی اگر `user` عوض نشده باشد Re-render می‌شوند. بپیچیدش: `const value = useMemo(() => ({ user, login }), [user, login])` (یا بگذارید کامپایلر انجامش دهد).
+2. **Contextها را بر اساس تعداد دفعات تغییر جدا کنید.** `dispatch` (که هیچ‌وقت عوض نمی‌شود) و `state` (که زیاد عوض می‌شود) را در Contextهای جدا بگذارید تا Componentهایی که فقط Dispatch می‌کنند هیچ‌وقت Re-render نشوند.
+3. **برای داده‌ای که زیاد عوض می‌شود از یک Store با Selector استفاده کنید.** یک Selector در [Zustand](/react/state) Component را فقط وقتی Re-render می‌کند که تکه‌ی انتخاب‌شده عوض شود؛ Context، Selector ندارد.
+
+## Render لیست‌های بزرگ: Virtualization
+
+حتی اگر React بهینه Render کند، ۱۰٬۰۰۰ ردیف یعنی ۱۰٬۰۰۰ DOM Node، و Layout و حافظه‌ی مرورگر گلوگاه می‌شوند. **Virtualization** (که **Windowing** هم صدایش می‌کنند) فقط ردیف‌هایی را که در محدوده‌ی دید Scroll هستند به‌اضافه‌ی چند ردیف اضافه Render می‌کند و با فاصله‌گذاری اندازه‌ی Scrollbar را درست نگه می‌دارد.
+
+```jsx live
+import { useState } from 'react'
+
+const ROW = 30 // هر ردیف ارتفاع ثابت دارد
+const VIEW = 300 // ارتفاع قابل دیدن جعبه‌ی Scroll
+const rows = Array.from({ length: 10000 }, (_, i) => `Row #${i}`)
+
+export default function App() {
+  const [scrollTop, setScrollTop] = useState(0)
+  const overscan = 5 // چند ردیف اضافه بالا و پایین تا Scroll سریع جای خالی نشان ندهد
+  const first = Math.max(0, Math.floor(scrollTop / ROW) - overscan)
+  const last = Math.min(rows.length, Math.ceil((scrollTop + VIEW) / ROW) + overscan)
+
+  return (
+    <>
+      <p>rendering rows {first}–{last - 1} of {rows.length} ({last - first} DOM rows)</p>
+      <div
+        style={{ height: VIEW, overflowY: 'auto', border: '1px solid #8888' }}
+        onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
+      >
+        {/* جعبه‌ی داخلی ارتفاع کامل را دارد، پس Scrollbar درست است */}
+        <div style={{ height: rows.length * ROW, position: 'relative' }}>
+          {rows.slice(first, last).map((label, i) => (
+            <div key={first + i} style={{ position: 'absolute', top: (first + i) * ROW, height: ROW, left: 8 }}>
+              {label}
+            </div>
+          ))}
+        </div>
+      </div>
+    </>
+  )
+}
+```
+
+کتابخانه‌هایی مثل **TanStack Virtual** یا **react-window** ارتفاع متغیر ردیف‌ها، لیست افقی، Grid و آیتم‌های چسبان (Sticky) را مدیریت می‌کنند. برای موارد ساده‌تر، Property مربوط به CSS یعنی [`content-visibility: auto`](/css/rendering-performance) به مرورگر اجازه می‌دهد Layout و Paint محتوای بیرون از صفحه را انجام ندهد، بدون اینکه DOM عوض شود.
+
+## Code Splitting با lazy
+
+سریع‌ترین کد، کدی است که کاربر مجبور به دانلودش نشد. **Code Splitting** (تقسیم کد) Bundle را به چند تکه (Chunk) می‌شکند و کد یک Component را فقط اولین باری که Render می‌شود بارگذاری می‌کند.
+
+<Api name="lazy()" sig="const Comp = lazy(load)" returns="Componentی که مثل بقیه Render می‌کنید؛ کدش در اولین Render بارگذاری می‌شود." mutates="خیر">
+
+- `load`: تابعی که یک Promise برمی‌گرداند که به یک Module با Export پیش‌فرض (`default`) از نوع Component می‌رسد؛ معمولاً `() => import('./Comp.jsx')`. React آن را یک بار، اولین باری که `Comp` Render می‌شود، صدا می‌زند و نتیجه (حتی Reject) را Cache می‌کند.
+- حین بارگذاری، `Comp` **Suspend** می‌شود: نزدیک‌ترین مرز [`<Suspense>`](/react/advanced) مقدار `fallback`ش را نشان می‌دهد.
+- اگر Promise، Reject شود، خطا به نزدیک‌ترین [Error Boundary](/react/patterns) پرتاب می‌شود.
+- Componentهای `lazy` را **در سطح Module** تعریف کنید. تعریفشان داخل یک Component در هر Render یک نوع Component جدید می‌سازد که Stateش را ریست می‌کند.
+
+</Api>
+
+```jsx live
+import { lazy, Suspense, useState } from 'react'
+
+// شبیه‌سازی import('./Settings.jsx') روی یک شبکه‌ی کند
+const Settings = lazy(
+  () =>
+    new Promise((resolve) => {
+      console.log('downloading the Settings chunk…')
+      setTimeout(() => resolve({ default: () => <p>⚙️ Settings loaded</p> }), 1200)
+    }),
+)
+
+export default function App() {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <button onClick={() => setOpen(!open)}>{open ? 'Close' : 'Open'} settings</button>
+      {open && (
+        <Suspense fallback={<p>Loading…</p>}>
+          <Settings />
+        </Suspense>
+      )}
+    </>
+  )
+}
+```
+
+بار اول `Loading…` نمایش داده می‌شود و دانلود یک بار چاپ می‌شود؛ بستن و باز کردن دوباره فوری است چون Module، Cache شده.
+
+اول بر اساس **Routeها** تقسیم کنید (هر صفحه یک Chunk)، بعد ویجت‌های سنگینی که اول کار دیده نمی‌شوند (ویرایشگر متن غنی، کتابخانه‌ی نمودار، یک Modal). برای حذف تأخیر بارگذاری، دانلود را زودتر شروع کنید: همان `import()` را موقع Hover یا وقتی مرورگر بیکار است صدا بزنید؛ `lazy` از همان Moduleی که در راه است استفاده می‌کند.
+
+## زنده نگه داشتن UI پنهان: Activity
+
+تب‌ها، Sidebarها و فرایندهای چندمرحله‌ای اغلب بخشی از UI را پنهان می‌کنند. با `{isOpen && <Panel />}` پنل پنهان **Unmount** می‌شود: Stateش (یک پیش‌نویس نیمه‌کاره، جای Scroll) از دست می‌رود و نمایش دوباره از صفر Render می‌شود. پنهان کردن با CSS، State را نگه می‌دارد ولی Effectهایش را روشن نگه می‌دارد و به‌روزرسانی‌هایش با UI قابل دیدن رقابت می‌کنند.
+
+**`<Activity>`** (پایدار از React 19.2) راه میانه است.
+
+<Api name="<Activity>" sig="<Activity mode={'visible' | 'hidden'}>…</Activity>" returns="فرزندانش." mutates="خیر">
+
+- `mode="visible"` (پیش‌فرض): فرزندان عادی Render می‌شوند و رفتار می‌کنند.
+- `mode="hidden"`: فرزندان با `display: none` پنهان می‌شوند، **State و DOMشان حفظ می‌شود**، **Effectهایشان Cleanup می‌شوند** (انگار Unmount شده‌اند) و به‌روزرسانی‌های داخلشان با **کمترین اولویت**، بعد از همه‌ی چیزهای قابل دیدن، Render می‌شوند.
+- برگشتن به `visible`، setup Effectها را دوباره اجرا می‌کند و UI حفظ‌شده را فوراً نشان می‌دهد.
+- Render کردن یک زیردرخت داخل یک `Activity` پنهان از همان اول، آن را در پس‌زمینه **از قبل Render (Pre-render)** می‌کند تا موقع نمایش فوراً ظاهر شود (اگر از Data Fetching سازگار با Suspense استفاده کند، با داده‌اش).
+
+</Api>
+
+```jsx live
+import { Activity, useEffect, useState } from 'react'
+
+function Draft({ name }) {
+  const [text, setText] = useState('')
+  useEffect(() => {
+    console.log(`▶ ${name}: effect setup`)
+    return () => console.log(`⏹ ${name}: effect cleanup`)
+  }, [name])
+  return <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder={`type in ${name}…`} />
+}
+
+export default function App() {
+  const [tab, setTab] = useState('a')
+  return (
+    <>
+      <button onClick={() => setTab('a')}>Tab A</button> <button onClick={() => setTab('b')}>Tab B</button>
+      <div>
+        <Activity mode={tab === 'a' ? 'visible' : 'hidden'}>
+          <Draft name="A" />
+        </Activity>
+        <Activity mode={tab === 'b' ? 'visible' : 'hidden'}>
+          <Draft name="B" />
+        </Activity>
+      </div>
+    </>
+  )
+}
+```
+
+در تب A تایپ کنید، به B بروید و برگردید: متن هنوز آنجاست. Console نشان می‌دهد Effect تب پنهان Cleanup شده و دوباره setup شده؛ برای همین است که [تابع‌های Cleanup](/react/effects) باید درست باشند.
+
+| روش پنهان کردن | State حفظ می‌شود | Effectها وقتی پنهان است | به‌روزرسانی‌ها وقتی پنهان است |
+| --- | --- | --- | --- |
+| `{show && <X />}` | ❌ از دست می‌رود | هیچ (Unmount شده) | هیچ |
+| CSS `display: none` | ✅ | همچنان اجرا می‌شوند | اولویت عادی |
+| `<Activity mode="hidden">` | ✅ | Cleanup شده‌اند | کمترین اولویت |
+
+## پاسخ‌گو ماندن: Transitionها و مقدارهای Deferred
+
+گاهی کار لازم است و نمی‌شود حذفش کرد: فیلتر کردن یک لیست بزرگ با هر کلید. آن وقت هدف این است که input پاسخ‌گو بماند در حالی که بخش کند Render می‌شود. قابلیت‌های Concurrent در React همین کار را می‌کنند: `useTransition` یک به‌روزرسانی را غیرفوری علامت می‌زند و `useDeferredValue` اجازه می‌دهد بخشی از UI کمی عقب بماند. هر دو، همراه با اینکه React چطور یک Render را قطع می‌کند، در [Concurrent React](/react/advanced) با جزئیات آمده‌اند.
+
+## چک‌لیست Performance
+
+| نشانه | اولین چیزی که امتحان کنید |
+| --- | --- |
+| تایپ در یک input کل صفحه را Re-render می‌کند | State را پایین ببرید، یا بقیه را به‌عنوان `children` پاس دهید |
+| یک فرزند با props یکسان Re-render می‌شود و کند است | `memo` (و props پایدار با `useMemo`/`useCallback`)، یا React Compiler |
+| یک محاسبه کند است | `useMemo`، یا الگوریتم بهتر |
+| با تغییر Context همه‌ی مصرف‌کننده‌ها Re-render می‌شوند | Memoize کردن value، جدا کردن Contextها، یا Store با Selector |
+| Scroll یک لیست بلند پرش دارد | Virtualization، یا `content-visibility: auto` |
+| بارگذاری اول کند است | Code Splitting با `lazy` و Chunk برای هر Route |
+| یک تب Stateش را از دست می‌دهد یا از صفر Render می‌شود | `<Activity>` |
+| input حین Render یک نتیجه‌ی کند کند می‌شود | `useTransition` / `useDeferredValue` |
+
+## اشتباه‌های رایج
+
+<Callout type="mistake">
+**Memoize کردن همه چیز.** پیچیدن هر مقدار در `useMemo` و هر Component در `memo` کار مقایسه و آرایه‌های Dependencyی اضافه می‌کند که ممکن است کهنه شوند، اغلب بدون هیچ سود قابل اندازه‌گیری. اندازه بگیرید، اول ساختار را درست کنید، بعد نقطه‌های داغ را Memoize کنید، یا کامپایلر را روشن کنید.
+</Callout>
+
+<Callout type="mistake">
+**`memo` با Object، آرایه، تابع یا children درجا (Inline).** `<Memo style={{ margin: 0 }} onClick={() => {}} />` در هر Render props جدید می‌گیرد، پس `memo` هیچ‌وقت رد نمی‌شود. پایدارشان کنید یا از Component بیرون ببریدشان.
+</Callout>
+
+<Callout type="mistake">
+**تعریف یک Component داخل Component دیگر.**
+
+```jsx
+function Parent() {
+  function Child() { return <input /> } // در هر Render یک نوع Component جدید
+  return <Child />
+}
+```
+
+React هر بار یک نوع متفاوت می‌بیند، پس `Child` را در هر Render، Unmount و دوباره Mount می‌کند: State از دست می‌رود و DOM از نو ساخته می‌شود. Componentها را در سطح Module تعریف کنید.
+</Callout>
+
+<Callout type="mistake">
+**index به‌عنوان key در لیستی که ترتیبش عوض می‌شود.** React مجبور می‌شود به‌جای جابه‌جا کردن ردیف‌ها همه را به‌روز کند و ممکن است State را به ردیف اشتباه بچسباند ([لیست و key](/react/fundamentals)).
+</Callout>
+
+## سوالات مصاحبه
+
+<QA q="یک صفحه‌ی کند React را چطور پیدا و درست می‌کنید؟" level="mid" n={1}>
+<Answer>
+
+اول با Profiler در React DevTools اندازه می‌گیرم (ترجیحاً روی Build تولید): تعامل کند را ضبط می‌کنم، Commitهای پرهزینه را پیدا می‌کنم و می‌بینم کدام Componentها و چرا Render شدند. بعد بر اساس علت درست می‌کنم: Render غیرضروری ← پایین بردن State، پاس دادن children، جدا کردن Context، `memo` با props پایدار یا React Compiler؛ Render سنگین ← `useMemo` یا الگوریتم بهتر؛ DOM زیاد ← Virtualization؛ Bundle بزرگ ← Code Splitting با `lazy`؛ input کند ← `useTransition`/`useDeferredValue`. بعد دوباره ضبط می‌کنم تا مطمئن شوم.
+
+</Answer>
+</QA>
+
+<QA q="فرق memo، useMemo و useCallback چیست؟" level="junior" n={2}>
+<Answer>
+
+`memo` یک **Component** را می‌پیچد و وقتی propsش به‌طور سطحی برابرند از Re-render آن رد می‌شود. `useMemo` **نتیجه‌ی یک محاسبه** را بین Renderها تا عوض شدن Dependencyها Cache می‌کند. `useCallback` **هویت یک تابع** را Cache می‌کند؛ همان `useMemo(() => fn, deps)` است. `useMemo` و `useCallback` بیشتر وقتی مهم‌اند که مقدار به یک فرزند Memoizeشده پاس داده شود یا Dependency باشد.
+
+</Answer>
+</QA>
+
+<QA q="چرا Component با memo من باز هم Re-render می‌شود؟" level="mid" n={3}>
+<Answer>
+
+یا یکی از props در هر Render یک Object، آرایه، تابع یا Element جدید JSX است (پس مقایسه‌ی سطحی `Object.is` شکست می‌خورد)، یا State خود Component عوض شده، یا Contextی که می‌خواند عوض شده. `memo` فقط از Renderهایی رد می‌شود که والد با props برابر باعثشان شده.
+
+</Answer>
+</QA>
+
+<QA q="React Compiler چیست و نحوه‌ی نوشتن React را چطور عوض می‌کند؟" level="senior" n={4}>
+<Answer>
+
+یک Babel Plugin (نسخه‌ی پایدار 1.0 از اواخر ۲۰۲۵) که Componentها و Hookها را به‌طور ایستا تحلیل می‌کند و Memoization ریزدانه اضافه می‌کند: مقدارها، Callbackها و JSX در یک Cache مخصوص هر Component (`useMemoCache` که به شکل `c` از `react/compiler-runtime` در دسترس است) ذخیره و فقط وقتی ورودی‌شان عوض شود دوباره حساب می‌شوند. در نتیجه بیشتر `memo`/`useMemo`/`useCallback`های دستی غیرضروری می‌شوند. به قانون‌های React تکیه دارد، از کدی که نمی‌تواند خالص بودنش را ثابت کند رد می‌شود و برای استفاده‌ی تدریجی Directiveهای `"use memo"`/`"use no memo"` و گزینه‌ی `compilationMode` را دارد.
+
+</Answer>
+</QA>
+
+<QA q="Virtualization چیست و کی لازمش دارید؟" level="mid" n={5}>
+<Answer>
+
+Render کردن فقط آیتم‌هایی که در محدوده‌ی دید Scroll هستند (به‌اضافه‌ی یک بافر Overscan) و قرار دادنشان داخل یک ظرف با ارتفاع کامل، تا Scrollbar عادی رفتار کند. وقتی لازم است که لیست هزاران ردیف دارد و هزینه از اندازه‌ی DOM، Layout و حافظه است نه خود React. کتابخانه‌ها: TanStack Virtual و react-window.
+
+</Answer>
+</QA>
+
+<QA q="Code Splitting چیست و در React چطور انجام می‌شود؟" level="junior" n={6}>
+<Answer>
+
+تقسیم Bundle جاوااسکریپت به تکه‌هایی که در صورت نیاز بارگذاری می‌شوند. در React یک `import()` پویا را با `lazy` می‌پیچید و Component را داخل `<Suspense fallback>` Render می‌کنید. Bundler برای Module واردشده یک Chunk جدا می‌سازد که اولین بار که Component، Render می‌شود دانلود می‌شود. تقسیم در سطح Route بیشترین سود را دارد.
+
+</Answer>
+</QA>
+
+<QA q="<Activity> چه کار می‌کند و چه فرقی با Render شرطی دارد؟" level="senior" n={7}>
+<Answer>
+
+`<Activity mode="hidden">` فرزندانش را با `display: none` پنهان می‌کند و State و DOMشان را نگه می‌دارد، Effectهایشان را Cleanup می‌کند و به‌روزرسانی‌هایشان را با کمترین اولویت Render می‌کند. Render شرطی زیردرخت را Unmount می‌کند و Stateش از دست می‌رود؛ پنهان کردن با CSS، State را نگه می‌دارد ولی Effectها را با اولویت عادی روشن می‌گذارد. Activity همچنین امکان Pre-render محتوایی را می‌دهد که احتمالاً کاربر بعداً می‌بیند.
+
+</Answer>
+</QA>
+
+## جمع‌بندی
+
+<Recap>
+
+- اول اندازه بگیرید (Profiler در DevTools، `<Profiler>`)، در صورت امکان روی Build تولید؛ علت اندازه‌گیری‌شده را درست کنید.
+- اصلاح ساختاری مقدم است: State را پایین ببرید یا بخش‌های سنگین را به‌عنوان `children` پاس دهید.
+- `memo` با props به‌طور سطحی برابر از Re-render رد می‌شود؛ Object، تابع و JSX درجا خرابش می‌کنند.
+- `useMemo` یک محاسبه و `useCallback` هویت یک تابع را Cache می‌کند؛ هر دو راهنمایی‌اند، نه تضمین.
+- React Compiler در زمان Build، Componentها، مقدارها، Callbackها و JSX را Memoize می‌کند؛ با `"use no memo"` بیرون بگذارید.
+- مصرف‌کننده‌های Context با هر تغییر value دوباره Render می‌شوند: value را Memoize کنید، Contextها را جدا کنید یا از Selector استفاده کنید.
+- لیست‌های بلند را Virtualize کنید تا فقط ردیف‌های قابل دیدن در DOM باشند.
+- کد را با `lazy` + `Suspense` تقسیم کنید و از Routeها شروع کنید؛ `lazy` را در سطح Module تعریف کنید.
+- `<Activity mode="hidden">` State را نگه می‌دارد، Effectها را Cleanup می‌کند و اولویت UI پنهان را پایین می‌آورد.
+- برای کار کندی که نمی‌شود حذفش کرد، input را با `useTransition` / `useDeferredValue` پاسخ‌گو نگه دارید.
+
+</Recap>
