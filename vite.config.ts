@@ -23,6 +23,8 @@ const codeBlockMeta: ShikiTransformer = {
 }
 
 export default defineConfig({
+  // GitHub Pages serves the site from /<repo>/; set BASE_PATH there.
+  base: process.env.BASE_PATH ?? '/',
   plugins: [
     {
       enforce: 'pre',
