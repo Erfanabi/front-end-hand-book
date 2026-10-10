@@ -423,6 +423,10 @@ const descriptions: Record<string, Localized> = {
     fa: 'Actionها و Transitionهای Async، useActionState، Actionهای فرم و useFormStatus، useOptimistic، use، ref به‌عنوان prop و Ref روی Fragment، Metadata سند، خطاهای بهتر، تازه‌های 19.1 تا 19.3 و ViewTransition.',
     en: 'Actions and async transitions, useActionState, form actions and useFormStatus, useOptimistic, use, ref as a prop and Fragment refs, document metadata, better errors, what 19.1–19.3 added, and ViewTransition.',
   },
+  'react/patterns': {
+    fa: 'Composition و Slotها، Controlled و Uncontrolled، Componentهای قابل کنترل، Compound Componentها، Render Props و HOC در برابر Custom Hook، Error Boundaryها، Portalها و محافظ احراز هویت.',
+    en: 'Composition and slots, controlled vs uncontrolled, controllable components, compound components, render props and HOCs vs custom hooks, error boundaries, portals and auth guards.',
+  },
 }
 
 for (const part of parts) {

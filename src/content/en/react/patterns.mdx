@@ -1,0 +1,620 @@
+## Why patterns matter
+
+Hooks, state and effects are the *words* of React. Patterns are the *sentences*: proven ways to split a UI into components so that they're reusable, hard to misuse, and easy to change. Interviewers ask about them constantly ("What's a compound component?", "Controlled vs uncontrolled?", "How do error boundaries work?", "When would you use a portal?") because they show whether you can design a component API, not just use one.
+
+Every pattern here answers one question: **who owns what?** Who owns the state, who decides the markup, who handles the error. Keep that question in mind and the patterns stop being a list to memorize.
+
+## Composition
+
+### children: the slot every component has
+
+React has no templates or inheritance for UI. Instead, a component can accept other elements and place them where it wants. The most common way is the special **`children`** prop: whatever you put between the opening and closing tags.
+
+```jsx live
+function Card({ title, children }) {
+  return (
+    <section style={{ border: '1px solid #8886', borderRadius: 10, padding: 12, marginBottom: 8 }}>
+      <h4 style={{ margin: '0 0 6px' }}>{title}</h4>
+      {children /* Card doesn't know or care what this is */}
+    </section>
+  )
+}
+
+export default function App() {
+  return (
+    <>
+      <Card title="Profile">
+        <p>Ada Lovelace</p>
+      </Card>
+      <Card title="Actions">
+        <button>Edit</button> <button>Delete</button>
+      </Card>
+    </>
+  )
+}
+```
+
+`Card` owns the frame (border, title); the parent owns the content. This is **containment**, and it's why most "generic box" components (dialogs, panels, layouts) take `children`.
+
+### Named slots
+
+When a component has several holes, pass elements through ordinary props. JSX is just a value, so any prop can carry it.
+
+```jsx
+function Layout({ header, sidebar, children }) {
+  return (
+    <div className="layout">
+      <header>{header}</header>
+      <aside>{sidebar}</aside>
+      <main>{children}</main>
+    </div>
+  )
+}
+
+<Layout header={<Logo />} sidebar={<Nav />}>
+  <Article />
+</Layout>
+```
+
+### Specialization instead of inheritance
+
+A "special" version of a component is a component that renders the general one with some props fixed. The React team has never found a case where class inheritance between components is the better tool.
+
+```jsx
+function Dialog({ title, children, tone = 'neutral' }) { /* ... */ }
+
+// A specialized dialog: just a component that configures the general one
+function DeleteConfirm({ onConfirm }) {
+  return (
+    <Dialog title="Delete this file?" tone="danger">
+      <button onClick={onConfirm}>Delete</button>
+    </Dialog>
+  )
+}
+```
+
+Composition also has a performance bonus: elements passed as `children` are created by the parent, so they don't re-render when the wrapper's state changes ([the children trick](/react/performance)).
+
+## Controlled and uncontrolled
+
+### For form inputs
+
+An `<input>` keeps its own value in the DOM. You can leave it there or take it over:
+
+- **Uncontrolled**: the DOM owns the value. You give an initial value with `defaultValue` (or `defaultChecked`) and read it when you need it, with a ref or from `FormData` on submit.
+- **Controlled**: React state owns the value. You pass `value` (or `checked`) **and** an `onChange` that updates the state. The input shows exactly what the state says, on every keystroke.
+
+```jsx live
+import { useRef, useState } from 'react'
+
+export default function App() {
+  // Controlled: React decides what the input shows
+  const [name, setName] = useState('')
+  // Uncontrolled: the DOM keeps the value; we read it on demand
+  const cityRef = useRef(null)
+
+  return (
+    <>
+      <p>
+        <label>
+          Name (controlled):{' '}
+          <input value={name} onChange={(e) => setName(e.target.value.toUpperCase())} />
+        </label>{' '}
+        → {name.length} chars
+      </p>
+      <p>
+        <label>
+          City (uncontrolled): <input ref={cityRef} defaultValue="Tehran" />
+        </label>{' '}
+        <button onClick={() => console.log('city =', cityRef.current.value)}>read city</button>
+      </p>
+    </>
+  )
+}
+```
+
+The controlled input can transform the value as you type (uppercase here), validate on every keystroke, and show derived info (the length). The uncontrolled one costs no re-renders, but React doesn't know its value until you ask.
+
+| | Controlled | Uncontrolled |
+| --- | --- | --- |
+| Source of truth | React state | the DOM |
+| Props | `value` + `onChange` | `defaultValue` (+ a ref or `FormData`) |
+| Re-render on every keystroke | yes | no |
+| Instant validation, formatting, dependent fields | easy | awkward |
+| Works with `<form action>` and `FormData` | yes (needs `name`) | yes, naturally |
+| Typical use | search boxes, live validation, inputs that affect other UI | simple forms submitted once, file inputs (always uncontrolled) |
+
+<Callout type="mistake">
+**Switching between controlled and uncontrolled.** `<input value={user.name} />` where `user.name` starts as `undefined` makes the input uncontrolled; when the value arrives it becomes controlled, and React warns: "A component is changing an uncontrolled input to be controlled". Always pass a defined value: `value={user.name ?? ''}`.
+
+**`value` without `onChange`** makes a read-only input that ignores typing (React warns). Add `onChange`, or use `defaultValue`, or `readOnly` if that's what you want.
+</Callout>
+
+### For your own components
+
+The same idea applies to any component with state. A `<Toggle>` can keep `on` internally (uncontrolled) or receive it from the parent (controlled). Good library components support **both**, like the DOM does: if the parent passes `value`, use it; otherwise use internal state seeded from `defaultValue`.
+
+```jsx live
+import { useState } from 'react'
+
+// A "controllable" component: controlled when `on` is passed, uncontrolled otherwise
+function Toggle({ on: onProp, defaultOn = false, onChange }) {
+  const [onState, setOnState] = useState(defaultOn)
+  const isControlled = onProp !== undefined
+  const on = isControlled ? onProp : onState
+
+  function toggle() {
+    if (!isControlled) setOnState(!on)
+    onChange?.(!on) // always tell the parent
+  }
+  return <button onClick={toggle}>{on ? '🟢 on' : '⚪ off'}</button>
+}
+
+export default function App() {
+  const [wifi, setWifi] = useState(true)
+  return (
+    <>
+      <p>Uncontrolled: <Toggle defaultOn onChange={(v) => console.log('bluetooth', v)} /></p>
+      <p>
+        Controlled: <Toggle on={wifi} onChange={setWifi} />{' '}
+        <button onClick={() => setWifi(false)}>parent turns wifi off</button>
+      </p>
+    </>
+  )
+}
+```
+
+The controlled toggle can be changed by the parent at any time; the uncontrolled one manages itself. A component should not switch between the two modes during its lifetime, for the same reason inputs shouldn't.
+
+## Compound components
+
+### The problem: one component, twenty props
+
+A tabs widget written as a single component quickly turns into a prop explosion: `tabs`, `panels`, `renderTab`, `tabClassName`, `disabledTabs`, `iconPosition`… Every new need adds a prop, and the markup is locked inside.
+
+**Compound components** split the widget into several components that work together and share state implicitly, the way `<select>` and `<option>` do in HTML:
+
+```jsx
+<Tabs defaultValue="a">
+  <Tabs.List>
+    <Tabs.Tab value="a">Account</Tabs.Tab>
+    <Tabs.Tab value="b">Billing</Tabs.Tab>
+  </Tabs.List>
+  <Tabs.Panel value="a">…</Tabs.Panel>
+  <Tabs.Panel value="b">…</Tabs.Panel>
+</Tabs>
+```
+
+The user controls the markup (order, wrappers, extra elements); the parent component owns the state and shares it through [context](/react/hooks).
+
+```jsx live
+import { createContext, use, useState } from 'react'
+
+const TabsContext = createContext(null)
+
+function useTabs() {
+  const ctx = use(TabsContext)
+  // A clear error instead of "cannot read properties of null"
+  if (!ctx) throw new Error('Tabs.* components must be rendered inside <Tabs>')
+  return ctx
+}
+
+function Tabs({ defaultValue, children }) {
+  const [value, setValue] = useState(defaultValue)
+  return <TabsContext value={{ value, setValue }}>{children}</TabsContext>
+}
+
+Tabs.List = function List({ children }) {
+  return <div role="tablist" style={{ display: 'flex', gap: 4, marginBottom: 8 }}>{children}</div>
+}
+
+Tabs.Tab = function Tab({ value, children }) {
+  const { value: active, setValue } = useTabs()
+  const selected = value === active
+  return (
+    <button role="tab" aria-selected={selected} onClick={() => setValue(value)} style={{ fontWeight: selected ? 700 : 400 }}>
+      {children}
+    </button>
+  )
+}
+
+Tabs.Panel = function Panel({ value, children }) {
+  const { value: active } = useTabs()
+  return value === active ? <div role="tabpanel">{children}</div> : null
+}
+
+export default function App() {
+  return (
+    <Tabs defaultValue="account">
+      <Tabs.List>
+        <Tabs.Tab value="account">Account</Tabs.Tab>
+        <Tabs.Tab value="billing">Billing</Tabs.Tab>
+        <span style={{ marginInlineStart: 'auto' }}>⚙️</span> {/* the user can add anything */}
+      </Tabs.List>
+      <Tabs.Panel value="account">Your name and email.</Tabs.Panel>
+      <Tabs.Panel value="billing">Your cards and invoices.</Tabs.Panel>
+    </Tabs>
+  )
+}
+```
+
+Key points of the pattern:
+
+- **Context, not `cloneElement`**. Older implementations walked `children` with `React.Children.map` and `cloneElement` to inject props. That breaks as soon as a child is wrapped in a `<div>` or another component. Context reaches any depth.
+- **A guard hook** (`useTabs`) gives a helpful error when a part is used outside its parent.
+- **Static properties** (`Tabs.Tab`) group the API under one import. Named exports (`TabsTab`) work just as well and tree-shake better.
+- Make the root **controllable** (`value`/`defaultValue`/`onValueChange`) so parents can drive it.
+
+This is how headless UI libraries (Radix UI, React Aria, Headless UI, Ark) are built.
+
+## Render props and higher-order components
+
+Before hooks, two patterns shared stateful logic between components. You'll still meet them in older code and interviews.
+
+### Render props
+
+A **render prop** is a function prop that a component calls to know what to render, passing its internal state as arguments.
+
+```jsx live
+import { useState } from 'react'
+
+function MouseTracker({ render }) {
+  const [pos, setPos] = useState({ x: 0, y: 0 })
+  return (
+    <div
+      onPointerMove={(e) => setPos({ x: e.nativeEvent.offsetX, y: e.nativeEvent.offsetY })}
+      style={{ height: 120, background: '#8882', borderRadius: 8, position: 'relative' }}
+    >
+      {render(pos) /* the caller decides the UI; the tracker provides the data */}
+    </div>
+  )
+}
+
+export default function App() {
+  return (
+    <MouseTracker
+      render={({ x, y }) => (
+        <span style={{ position: 'absolute', left: x, top: y }}>🐭 {x},{y}</span>
+      )}
+    />
+  )
+}
+```
+
+`children` can be the function too (`<MouseTracker>{(pos) => …}</MouseTracker>`), which is the "function as children" variant. Render props are still the right tool when a component must hand data to the markup *it renders in a specific place*, for example a virtualized list's `renderItem` or a form library's field.
+
+### Higher-order components (HOCs)
+
+A **higher-order component** is a function that takes a component and returns a new component with extra behavior, like a [higher-order function](/javascript/this-functions) for components.
+
+```jsx
+function withLogger(Wrapped) {
+  function WithLogger(props) {
+    useEffect(() => console.log('mounted', Wrapped.name), [])
+    return <Wrapped {...props} />
+  }
+  WithLogger.displayName = `withLogger(${Wrapped.displayName || Wrapped.name})` // nicer DevTools name
+  return WithLogger
+}
+
+const LoggedButton = withLogger(Button)
+```
+
+HOCs have well-known problems: **wrapper hell** in DevTools, **prop name collisions** (two HOCs both inject `data`), **unclear origin** of props, and static methods and refs aren't forwarded automatically. Never create a HOC inside render (`const X = withLogger(Y)` in a component body): it's a new component type every render, so its state resets.
+
+### Custom hooks replaced most of both
+
+```jsx
+// The same logic as MouseTracker, as a hook: no wrapper, no render function
+function useMousePosition() {
+  const [pos, setPos] = useState({ x: 0, y: 0 })
+  const onPointerMove = (e) => setPos({ x: e.nativeEvent.offsetX, y: e.nativeEvent.offsetY })
+  return [pos, onPointerMove]
+}
+```
+
+| | HOC | Render prop | [Custom hook](/react/hooks) |
+| --- | --- | --- | --- |
+| Shares | behavior + props | state via a function argument | state and logic, directly |
+| Extra components in the tree | yes | yes | no |
+| Name collisions | possible | no | no (you name the variables) |
+| Where it's still useful | wrapping third-party components, cross-cutting concerns at export time (`connect`, `withRouter` in old code) | a component that renders UI around caller-provided parts | almost everything else |
+
+## Error boundaries
+
+### The problem: one error unmounts everything
+
+If a component throws during render, React can't produce a valid UI for that part of the tree. Since React 16, an uncaught render error **unmounts the whole app** (a blank page is better than a corrupted one). An **error boundary** is a component that catches errors in its subtree and shows a fallback instead, so one broken widget doesn't take the page down.
+
+### Writing one
+
+Error boundaries are still written as **class components**, because they rely on two lifecycle methods that have no hook equivalent:
+
+<Api name="static getDerivedStateFromError()" sig="static getDerivedStateFromError(error) → partial state" returns="state to merge, usually `{ error }`, so the next render shows the fallback." mutates="no (pure)">
+
+- Called during render after a descendant threw. It must be pure: no logging here.
+
+</Api>
+
+<Api name="componentDidCatch()" sig="componentDidCatch(error, info)" returns="nothing." mutates="no">
+
+- Called during commit, after the fallback is on screen. Use it for side effects such as reporting.
+- `info.componentStack`: the component stack of the error, for your logs.
+
+</Api>
+
+```jsx live
+import { Component, useState } from 'react'
+
+class ErrorBoundary extends Component {
+  state = { error: null }
+
+  static getDerivedStateFromError(error) {
+    return { error } // next render shows the fallback
+  }
+
+  componentDidCatch(error, info) {
+    // side effects go here: send to your error tracker
+    console.log('reported:', error.message)
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ color: 'crimson' }}>
+          Something went wrong: {this.state.error.message}{' '}
+          <button onClick={() => this.setState({ error: null })}>Try again</button>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
+function Counter() {
+  const [n, setN] = useState(0)
+  if (n === 3) throw new Error('I crash at 3!')
+  return <button onClick={() => setN(n + 1)}>count: {n} (crashes at 3)</button>
+}
+
+export default function App() {
+  return (
+    <>
+      <ErrorBoundary>
+        <Counter />
+      </ErrorBoundary>
+      <p>⬆ only that widget fails; this text and the rest of the page stay.</p>
+    </>
+  )
+}
+```
+
+Click three times: the fallback replaces only the counter. "Try again" clears the error and renders the children again with fresh state. In development React also logs the caught error to the console (you'll see an `error:` line), and in a real app the root's `onCaughtError` option controls that ([React 19 errors](/react/react-19)).
+
+### What error boundaries don't catch
+
+They catch errors thrown **while React renders, in lifecycle methods and in Effects** of their descendants. They do **not** catch:
+
+| Not caught | Why | Handle it with |
+| --- | --- | --- |
+| errors in event handlers | handlers run outside rendering; React doesn't need to change the UI | `try`/`catch` in the handler, then set error state |
+| async code (`setTimeout`, a rejected Promise in a handler) | runs later, outside React's call stack | `try`/`catch` around `await`; or set state and throw during render |
+| errors in the boundary itself | it can't render its own fallback | a boundary higher up |
+| server-side rendering errors | different mechanism | the server renderer's `onError` |
+
+To send an async error to a boundary, store it in state and throw it during render:
+
+```jsx
+const [error, setError] = useState(null)
+if (error) throw error // now the nearest boundary catches it
+
+async function handleSave() {
+  try {
+    await save()
+  } catch (e) {
+    setError(e)
+  }
+}
+```
+
+Actions are the exception: an error thrown inside a form Action or a `startTransition` Action in React 19 *does* reach the boundary.
+
+### Placement and resetting
+
+- Wrap **independent regions**: a route, a sidebar, each dashboard widget. One boundary around the whole app only replaces a blank page with an error page.
+- **Reset with `key`**: `<ErrorBoundary key={location.pathname}>` mounts a fresh boundary when the user navigates, clearing the error.
+- The `react-error-boundary` package provides a ready-made `<ErrorBoundary FallbackComponent onReset resetKeys>` and a `useErrorBoundary()` hook to show the boundary from event handlers.
+
+## Portals
+
+### The problem: CSS traps
+
+A modal rendered inside a card is inside the card's DOM. If the card has `overflow: hidden`, a `transform`, or a low `z-index` [stacking context](/css/positioning), the modal gets clipped or hidden behind other content, no matter what `z-index` you give it.
+
+A **portal** renders children into a **different DOM node** (usually at the end of `<body>`) while keeping them in the same place in the **React tree**.
+
+<Api name="createPortal()" sig="createPortal(children, domNode, key?)" returns="a React node you return from a component like any JSX." mutates="no (React inserts the children into domNode on commit)">
+
+- `children`: what to render: JSX, a string, a fragment.
+- `domNode`: an existing DOM element to render into, e.g. `document.body`. It must exist when the portal renders.
+- `key` (optional): a key for the portal when you render a list of them.
+- Imported from **`react-dom`**.
+
+</Api>
+
+```jsx live
+import { useState } from 'react'
+import { createPortal } from 'react-dom'
+
+function Modal({ onClose, children }) {
+  // Rendered into <body>, outside the clipping card below
+  return createPortal(
+    <div
+      style={{ position: 'fixed', inset: 0, background: '#0006', display: 'grid', placeItems: 'center' }}
+      onClick={onClose}
+    >
+      <div style={{ background: 'white', color: '#222', padding: 16, borderRadius: 10 }} onClick={(e) => e.stopPropagation()}>
+        {children} <button onClick={onClose}>Close</button>
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
+export default function App() {
+  const [open, setOpen] = useState(false)
+  return (
+    // The card clips its content: a modal rendered inside it would be cut off
+    <div
+      style={{ overflow: 'hidden', height: 60, border: '1px solid #8886', borderRadius: 8, padding: 8 }}
+      onClick={() => console.log('card got a click (bubbled through the React tree)')}
+    >
+      <button onClick={() => setOpen(true)}>Open modal</button>
+      {open && <Modal onClose={() => setOpen(false)}>Hello from document.body 👋</Modal>}
+    </div>
+  )
+}
+```
+
+### Events follow the React tree, not the DOM tree
+
+The modal's DOM lives in `<body>`, but in the React tree it's a child of the card. React propagates synthetic events along the **React tree**, so a click inside the modal reaches the card's `onClick` (that's what the console line in the demo shows). Context also flows into the portal normally. Stop propagation inside the portal if parents shouldn't react.
+
+### Modals need more than a portal
+
+A real dialog also needs: focus moved into it and trapped there, `Escape` to close, focus returned to the trigger on close, `aria-modal`, and the page behind made inert. The native [`<dialog>`](/html/semantic) element with `showModal()` does all of that and renders in the browser's **top layer** (above every z-index) without a portal. Use portals for things `<dialog>` and the Popover API don't cover, or when you need React-tree context inside a top-level layer.
+
+## Authentication guards: a pattern that combines the others
+
+Protecting pages is a good example of patterns working together: a **provider** owns the auth state, a **custom hook** reads it, and a **guard component** decides what to render.
+
+```jsx
+const AuthContext = createContext(null)
+
+function AuthProvider({ children }) {
+  const [user, setUser] = useState(null)
+  const [status, setStatus] = useState('checking') // 'checking' | 'signed-in' | 'signed-out'
+
+  useEffect(() => {
+    // Ask the server who we are. The session (for example a JWT in an httpOnly cookie)
+    // is sent by the browser automatically, so JavaScript never touches the token.
+    fetch('/api/me', { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((u) => {
+        setUser(u)
+        setStatus(u ? 'signed-in' : 'signed-out')
+      })
+  }, [])
+
+  return <AuthContext value={{ user, status, setUser }}>{children}</AuthContext>
+}
+
+const useAuth = () => use(AuthContext)
+
+function RequireAuth({ children }) {
+  const { status } = useAuth()
+  if (status === 'checking') return <Spinner />
+  if (status === 'signed-out') return <Navigate to="/login" />
+  return children
+}
+
+// usage: <RequireAuth><Dashboard /></RequireAuth>
+```
+
+<Callout type="warning">
+A client-side guard is **UX, not security**. Anyone can change JavaScript in their browser, so every API endpoint must check the token or session on the server. How tokens such as **JWTs** are structured, signed, stored (httpOnly cookie vs memory vs `localStorage`), refreshed and revoked is covered in [Auth, security & performance architecture](/architecture/auth-security-performance).
+</Callout>
+
+## Other patterns you'll hear about
+
+- **Container / presentational**: one component fetches data, another only renders props. Hooks made the split less necessary (a `useProducts()` hook is the "container"), but keeping UI components free of data fetching is still good for testing and reuse.
+- **Provider pattern**: put shared values in context near the root (`ThemeProvider`, `QueryClientProvider`). Watch the [re-render cost](/react/performance).
+- **Polymorphic `as` prop**: `<Button as="a" href="/x">` renders a different element with the same styles. Simple to write, tricky to type in TypeScript.
+- **Prop getters** (from headless libraries): a hook returns functions like `getInputProps()` that produce all props an element needs (handlers, ARIA attributes), merged with yours.
+- **State reducer**: a component accepts a `stateReducer` prop that lets the parent override how internal state changes, an inversion-of-control pattern from Downshift.
+
+## Common mistakes
+
+<Callout type="mistake">
+**Passing everything through props of one giant component** instead of composing. If a component has props like `headerTitle`, `headerIcon`, `headerAction`, take a `header` element (a slot) or split it into compound parts.
+</Callout>
+
+<Callout type="mistake">
+**Using `cloneElement` to inject props into children.** It only reaches direct children and silently breaks when they're wrapped. Use context.
+</Callout>
+
+<Callout type="mistake">
+**Expecting an error boundary to catch an event handler error.** It won't; catch it in the handler.
+</Callout>
+
+## Interview questions
+
+<QA q="What is the difference between controlled and uncontrolled components?" level="junior" n={1}>
+<Answer>
+
+A controlled input gets its value from React state (`value` + `onChange`), so React is the single source of truth and you can validate or transform on every change. An uncontrolled input keeps its value in the DOM; you set `defaultValue` and read the value with a ref or `FormData`. The same idea applies to custom components: controlled when the parent passes the value, uncontrolled when the component keeps it internally. Good components support both and never switch during their lifetime.
+
+</Answer>
+</QA>
+
+<QA q="What are compound components and how do you implement them?" level="mid" n={2}>
+<Answer>
+
+A set of components that work together and share implicit state, like `<Tabs>`, `<Tabs.Tab>` and `<Tabs.Panel>`. The root holds the state and provides it through context; each part reads it with a hook that throws a clear error when used outside the root. The user controls markup and order, so the API stays small. `React.Children`/`cloneElement` is the old, fragile way to do it.
+
+</Answer>
+</QA>
+
+<QA q="How do error boundaries work, and what don't they catch?" level="mid" n={3}>
+<Answer>
+
+A class component with `static getDerivedStateFromError` (returns state to render a fallback) and optionally `componentDidCatch` (for logging) catches errors thrown during rendering, lifecycle methods and Effects in its subtree. It doesn't catch errors in event handlers, async callbacks, server rendering, or in itself. Async errors can be routed to it by storing them in state and throwing during render; React 19 Actions also propagate to boundaries.
+
+</Answer>
+<FollowUp>
+
+Why are they still classes? There's no hook for catching render errors of descendants yet; libraries like `react-error-boundary` wrap the class for you.
+
+</FollowUp>
+</QA>
+
+<QA q="What is a portal, and how do events behave in it?" level="mid" n={4}>
+<Answer>
+
+`createPortal(children, domNode)` renders children into another DOM node while they stay in the same position in the React tree. It's used for modals, tooltips and toasts that must escape `overflow: hidden`, transforms or stacking contexts. Events bubble through the React tree, not the DOM tree, so a click in a portal reaches the React ancestors' handlers, and context works as usual.
+
+</Answer>
+</QA>
+
+<QA q="Render props vs HOCs vs custom hooks?" level="mid" n={5}>
+<Answer>
+
+All three share logic. A HOC wraps a component and injects props, causing wrapper nesting and prop collisions. A render prop passes state to a function that returns UI, which adds nesting but keeps control of rendering with the caller. Custom hooks share state and logic directly without extra components or naming conflicts, so they replaced most uses; render props remain useful for "render this part here" APIs, HOCs for wrapping components at export time.
+
+</Answer>
+</QA>
+
+<QA q="How would you protect routes that require login?" level="mid" n={6}>
+<Answer>
+
+An `AuthProvider` loads the current user (for example from `/api/me`, with the session or JWT in an httpOnly cookie), exposes `{ user, status }` through context, and a `RequireAuth` guard renders a spinner while checking, redirects to `/login` when signed out, and renders the page otherwise. The server must still verify the token on every request: client guards are only for UX.
+
+</Answer>
+</QA>
+
+## Recap
+
+<Recap>
+
+- Compose with `children` and element props (slots); specialize by wrapping, never by inheritance.
+- Controlled = React state owns the value (`value` + `onChange`); uncontrolled = the DOM owns it (`defaultValue` + ref/`FormData`).
+- Never switch an input between controlled and uncontrolled; use `value ?? ''`.
+- Controllable components accept `value`/`defaultValue`/`onChange` and work both ways.
+- Compound components share state through context, with a guard hook for misuse.
+- Custom hooks replaced most render props and HOCs; render props still fit "render this slot" APIs.
+- Error boundaries (classes with `getDerivedStateFromError`) catch render, lifecycle and Effect errors, not event handler or async errors.
+- Place boundaries around independent regions and reset them with `key`.
+- `createPortal` renders into another DOM node; events and context follow the React tree.
+- Client-side auth guards are UX; the server must verify every request.
+
+</Recap>
