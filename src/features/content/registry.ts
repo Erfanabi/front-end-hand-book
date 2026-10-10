@@ -407,6 +407,10 @@ const descriptions: Record<string, Localized> = {
     fa: 'Trigger، Render و Commit، ترتیب Refها و Effectها، چه چیزی Re-render می‌کند، Bailout و ترفند children، Batching و flushSync، Virtual DOM، Reconciliation، Fiber، Work Loop و Laneها.',
     en: 'Trigger, render and commit, the order of refs and effects, what causes a re-render, bailouts and the children trick, batching and flushSync, the virtual DOM, reconciliation, Fiber, the work loop and lanes.',
   },
+  'react/state': {
+    fa: 'انواع State و جای هر کدام، ساختار دادن به State، Lifting State Up، Reducer + Context، Zustand (Selectorها، useShallow، Middleware)، TanStack Query (staleTime، gcTime، Mutation، Optimistic) و URL State.',
+    en: 'Kinds of state and where each lives, structuring state, lifting state up, reducer + context, Zustand (selectors, useShallow, middleware), TanStack Query (staleTime, gcTime, mutations, optimistic updates) and URL state.',
+  },
 }
 
 for (const part of parts) {

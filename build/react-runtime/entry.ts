@@ -12,6 +12,7 @@ import * as ReactDOM from 'react-dom'
 import * as ReactDOMClient from 'react-dom/client'
 import * as Zustand from 'zustand'
 import * as ZustandMiddleware from 'zustand/middleware'
+import * as ZustandShallow from 'zustand/shallow'
 import * as ReactQuery from '@tanstack/react-query'
 
 const modules: Record<string, unknown> = {
@@ -21,6 +22,7 @@ const modules: Record<string, unknown> = {
   'react-dom/client': ReactDOMClient,
   zustand: Zustand,
   'zustand/middleware': ZustandMiddleware,
+  'zustand/shallow': ZustandShallow,
   '@tanstack/react-query': ReactQuery,
 }
 

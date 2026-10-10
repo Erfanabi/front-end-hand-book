@@ -47,4 +47,8 @@ Full design in `PLAN.md` (read only if needed). Writing standard: skill `handboo
   ✅ react/hooks (fa+en, 12 live demos click-tested; effects/memo/transitions/React-19 hooks deferred to their chapters).
   ✅ react/rendering (fa+en, 7 live demos; commit/effect order and batching verified in the browser).
   Live demos may call console.clear() to reset their console.
-  Next: react/state.
+  ✅ react/state (fa+en, 7 live demos; Zustand object-selector loop and the optimistic rollback verified in the browser).
+  Live demos can also import `zustand/shallow`.
+  Hidden Browser pane: diagrams stay on "drawing…" too; validate with `mermaid.render` using the page's own
+  `/deps/mermaid.js?v=…` URL (from performance entries) — importing it without `?v=` breaks Vite's dep cache.
+  Next: react/effects.
