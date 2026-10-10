@@ -132,6 +132,8 @@ export const parts: Part[] = [
       ch('state', 'مدیریت State', 'State management'),
       ch('effects', 'Effectها', 'Effects'),
       ch('performance', 'Performance در React', 'React performance'),
+      ch('react-19', 'React 19 و نسخه‌های بعدی', 'React 19 and beyond'),
+      ch('patterns', 'الگوهای کامپوننت در React', 'React component patterns'),
       ch('advanced', 'Concurrent React، Server Components و SSR', 'Concurrent React, Server Components & SSR'),
       ch('interview-questions', '۵۰ سوال مصاحبه React', '50 React interview questions'),
     ],
@@ -392,6 +394,10 @@ const descriptions: Record<string, Localized> = {
   'browser/security': {
     fa: 'Origin و Site، انواع XSS و Sinkهای خطرناک، Escape و اعتبارسنجی URL، CSP و Trusted Types، CSRF، Clickjacking، HSTS، Headerهای امنیتی و کد Third-party.',
     en: 'Origins and sites, XSS types and dangerous sinks, escaping and URL validation, CSP and Trusted Types, CSRF, clickjacking, HSTS, security headers and third-party code.',
+  },
+  'react/fundamentals': {
+    fa: 'UI = f(state)، createRoot، JSX و Elementها، Componentها و props، Render شرطی، لیست و key، Eventها، useState و Snapshot، Immutability، خالص بودن و StrictMode.',
+    en: 'UI = f(state), createRoot, JSX and elements, components and props, conditional rendering, lists and keys, events, useState and snapshots, immutability, purity and StrictMode.',
   },
 }
 
