@@ -12,6 +12,9 @@ Full design in `PLAN.md` (read only if needed). Writing standard: skill `handboo
 - Verify code claims with tiny scripts in `.tmp/` (scratch, safe to overwrite), not by long reasoning.
 - Keep chat summaries short; details belong in the chapters.
 
+## Git
+- Commit and push to `origin main` after every finished chapter/fix (user request). Pushing deploys to GitHub Pages.
+
 ## Adding a chapter
 1. Slug already listed in `src/features/content/registry.ts` (`parts[].chapters`).
 2. Write `src/content/fa/<part>/<slug>.mdx` and `src/content/en/<part>/<slug>.mdx` (same headings/anchors).
@@ -42,4 +45,6 @@ Full design in `PLAN.md` (read only if needed). Writing standard: skill `handboo
   Note: `pnpm lint` is broken (typescript-eslint 8.71 rejects TS 7); this predates the React work.
   ✅ react/fundamentals (fa+en, 14 live demos, all click-tested). Check live blocks: `node .tmp/react-blocks.mjs <mdx>`.
   ✅ react/hooks (fa+en, 12 live demos click-tested; effects/memo/transitions/React-19 hooks deferred to their chapters).
-  Next: react/rendering.
+  ✅ react/rendering (fa+en, 7 live demos; commit/effect order and batching verified in the browser).
+  Live demos may call console.clear() to reset their console.
+  Next: react/state.

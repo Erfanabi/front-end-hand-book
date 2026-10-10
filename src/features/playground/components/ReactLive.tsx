@@ -110,6 +110,7 @@ export function ReactLive({ code, lang = 'jsx', strict: strictMode }: ReactLiveP
         )
       }
       if (data.type === 'height') setHeight(Math.min(Math.max(data.value, 90), 640))
+      if (data.type === 'clear') setLogs([])
       if (data.type === 'log') setLogs((prev) => [...prev.slice(-199), { level: data.level, text: data.text }])
     }
     addEventListener('message', onMessage)

@@ -60,6 +60,8 @@ for (const level of ['log', 'info', 'warn', 'error', 'debug'] as Level[]) {
     post({ type: 'log', level, text: formatArgs(args) })
   }
 }
+// Demos call console.clear() before a new step so the log shows only that step.
+console.clear = () => post({ type: 'clear' })
 
 function showError(error: unknown) {
   const box = document.getElementById('__error') ?? document.body.appendChild(document.createElement('pre'))

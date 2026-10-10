@@ -403,6 +403,10 @@ const descriptions: Record<string, Localized> = {
     fa: 'قوانین Hookها و دلیلشان، useState با جزئیات، useReducer، useRef و Ref Callbackها، useImperativeHandle، useContext، useId، useSyncExternalStore و Custom Hookها.',
     en: 'The rules of hooks and why, useState in depth, useReducer, useRef and ref callbacks, useImperativeHandle, useContext, useId, useSyncExternalStore and custom hooks.',
   },
+  'react/rendering': {
+    fa: 'Trigger، Render و Commit، ترتیب Refها و Effectها، چه چیزی Re-render می‌کند، Bailout و ترفند children، Batching و flushSync، Virtual DOM، Reconciliation، Fiber، Work Loop و Laneها.',
+    en: 'Trigger, render and commit, the order of refs and effects, what causes a re-render, bailouts and the children trick, batching and flushSync, the virtual DOM, reconciliation, Fiber, the work loop and lanes.',
+  },
 }
 
 for (const part of parts) {
