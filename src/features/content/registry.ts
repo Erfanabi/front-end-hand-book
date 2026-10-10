@@ -431,6 +431,10 @@ const descriptions: Record<string, Localized> = {
     fa: 'Render همزمان، useTransition و useDeferredValue، Suspense و مرزهای تودرتو، CSR/SSR/SSG/ISR، Hydration و Mismatch، Streaming و Selective Hydration، Server Components، RSC Payload و Server Functionها.',
     en: 'Concurrent rendering, useTransition and useDeferredValue, Suspense and nested boundaries, CSR/SSR/SSG/ISR, hydration and mismatches, streaming and selective hydration, Server Components, the RSC payload and Server Functions.',
   },
+  'react/interview-questions': {
+    fa: '۵۰ سوال پرتکرار مصاحبه‌ی React از Junior تا Senior: مبانی، Hookها و State، Rendering و Performance، Effectها، React 19، Concurrent و RSC، الگوها و سناریوهای Code Review.',
+    en: '50 frequently asked React interview questions from junior to senior: fundamentals, hooks and state, rendering and performance, effects, React 19, concurrent React and RSC, patterns and code-review scenarios.',
+  },
 }
 
 for (const part of parts) {

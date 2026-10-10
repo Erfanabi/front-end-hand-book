@@ -27,9 +27,12 @@ Full design in `PLAN.md` (read only if needed). Writing standard: skill `handboo
 ## Progress (update me)
 - ✅ HTML (6), CSS (8), JavaScript (18), TypeScript (5) — all fa+en, with recaps. Build passes (2026-10-10).
 - ✅ Browser (7): dom, events, rendering-pipeline, storage, http-fetch, websocket, security. Build passes (2026-10-10).
-- ⏳ React (8) · Tooling (3) · Algorithms (3) · Patterns (4) · Architecture (3) · Interview (2) · Cheatsheet (2)
+- ✅ React (10): fundamentals, hooks, rendering, state, effects, performance, react-19, patterns, advanced,
+  interview-questions (50 Qs). Build passes (2026-10-10).
+- ⏳ Tooling (3) · Algorithms (3) · Patterns (4) · Architecture (3) · Interview (2) · Cheatsheet (2)
 - ⏳ Deploy to Vercel (user asked for it at the very end; `vercel.json` exists)
-- Next up: **React** (8 planned chapters). User decision (2026-10-10): make React the most complete part —
+- Next up: **Tooling** (build-tools, testing, web-performance), then Algorithms, Patterns, Architecture (JWT!), Interview, Cheatsheet.
+- (history) React was planned as 8 chapters. User decision (2026-10-10): make React the most complete part —
   cover React 19 and every later update (19.x features, React Compiler, etc.) and the tricky parts in depth;
   State chapter covers built-ins + Zustand + TanStack Query. Verify APIs against installed `react` / `@types/react`.
 - React plan (decided 2026-10-10, react 19.3.0 installed): 10 chapters, in order —
@@ -64,7 +67,7 @@ Console
   (Focus checks are unreliable while hidden: no focus events fire.)
   ✅ react/patterns (fa+en, 7 live demos; includes an auth-guard section that links JWT details to architecture).
   ✅ react/advanced (fa+en, 3 live demos; transition keystroke ~33ms vs ~245ms blocking, staged Suspense reveal verified).
-  Next: react/interview-questions (50 Qs).
+  ✅ react/interview-questions (fa+en, 50 QAs). React part done.
 - JWT (user request 2026-10-10): cover JWT in the post-React parts — full treatment in
   architecture/auth-security-performance (structure header.payload.signature, base64url, signing HS256 vs RS256,
   claims exp/iat/nbf/aud/iss, verification, access + refresh tokens and rotation, where to store: httpOnly

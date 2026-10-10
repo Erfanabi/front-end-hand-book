@@ -1,0 +1,490 @@
+## چطور از این فصل استفاده کنید
+
+این‌ها ۵۰ سوال React هستند که بارها و بارها در مصاحبه‌های Frontend پرسیده می‌شوند؛ بر اساس موضوع دسته‌بندی شده‌اند و برچسب **junior**، **mid** یا **senior** دارند. هر جواب همان چیزی است که یک کاندید قوی در حدود یک دقیقه می‌گوید؛ لینک‌ها به فصلی می‌روند که موضوع را از صفر توضیح داده.
+
+روش تمرین:
+
+1. سوال را بخوانید و قبل از باز کردن جواب، **بلند** جواب دهید. مصاحبه شفاهی است.
+2. مقایسه کنید: آیا *چرا* را هم گفتید، نه فقط *چه* را؟ مثال زدید؟
+3. برای سوال‌های «senior» مصاحبه‌کننده معمولاً سوال بعدی می‌پرسد. بخش‌های **Deep** و **Follow-up** را هم بخوانید.
+
+<Callout type="tip">
+یک ساختار خوب برای تقریباً هر جوابی: **تعریف در یک جمله ← چطور کار می‌کند ← یک مثال ← یک بده‌بستان یا دام**. همان دام است که جواب mid را از جواب senior جدا می‌کند.
+</Callout>
+
+## مبانی
+
+<QA q="React چیست و چه مشکلی را حل می‌کند؟" level="junior" n={1}>
+<Answer>
+
+یک کتابخانه‌ی JavaScript برای ساختن رابط کاربری از **Componentها**. به‌جای اینکه بعد از هر رویداد DOM را دستی عوض کنید، توصیف می‌کنید UI برای یک State مشخص باید چه شکلی باشد (`UI = f(state)`) و React، DOM را با آن هماهنگ می‌کند. این کار UI را قابل پیش‌بینی، قابل ترکیب و راحت‌تغییر می‌کند. کتابخانه است، نه Framework: Routing، بارگذاری داده و Bundle کردن از ابزارهای دیگر یا یک Framework مثل Next.js می‌آیند. [مبانی](/react/fundamentals) را ببینید.
+
+</Answer>
+</QA>
+
+<QA q="JSX چیست و به چه چیزی کامپایل می‌شود؟" level="junior" n={2}>
+<Answer>
+
+یک افزونه‌ی Syntax که اجازه می‌دهد Markup را داخل JavaScript بنویسید. یک کامپایلر (Babel، SWC، esbuild) `<h1 className="x">Hi</h1>` را به یک فراخوانی تابع تبدیل می‌کند، با Runtime خودکار `jsx('h1', { className: 'x', children: 'Hi' })`، که یک Object ساده برمی‌گرداند: یک **React Element**. عبارت‌های JSX مقدارند: می‌شود آن‌ها را در متغیر ذخیره کرد، برگرداند و به‌عنوان prop پاس داد.
+
+</Answer>
+<Mistake>
+
+گفتن اینکه JSX همان HTML است. JavaScript است: `className` به‌جای `class`، `htmlFor`، رویدادهای camelCase، `{}` برای عبارت‌ها، و هر تگ باید بسته شود.
+
+</Mistake>
+</QA>
+
+<QA q="فرق Element، Component و Instance چیست؟" level="mid" n={3}>
+<Answer>
+
+**Component** تابعی (یا کلاسی) است که UI برمی‌گرداند. **Element** یک Object تغییرناپذیر است که توصیف می‌کند چه چیزی Render شود، `{ type, props, key }`، و JSX آن را می‌سازد. **Instance** (در درون React یک Fiber) آن چیز زنده‌ای است که React برای یک Component در یک جایگاه درخت نگه می‌دارد و State و Effectهایش را در خود دارد. هر Render، Elementهای جدید می‌سازد؛ Instanceها تا وقتی نوع و جایگاه یکی بماند باقی می‌مانند.
+
+</Answer>
+</QA>
+
+<QA q="props چیست و چرا فقط‌خواندنی است؟" level="junior" n={4}>
+<Answer>
+
+props ورودی‌هایی هستند که والد به فرزند پاس می‌دهد، مثل آرگومان‌های تابع. فقط‌خواندنی‌اند چون Component باید خالص باشد: props یکسان باید خروجی یکسان بدهد، و داده یک‌طرفه جریان دارد (والد ← فرزند). برای تغییر چیزی، صاحب داده Stateش را عوض می‌کند و props جدید به پایین می‌فرستد؛ فرزند می‌تواند از طریق یک prop از نوع Callback درخواست تغییر کند.
+
+</Answer>
+</QA>
+
+<QA q="State چیست و چه فرقی با props دارد؟" level="junior" n={5}>
+<Answer>
+
+State داده‌ای است که مال خود Component است و می‌تواند با `useState`/`useReducer` در طول زمان عوضش کند؛ تغییرش باعث Re-render می‌شود. props مال والد است و برای فرزند فقط‌خواندنی است. قاعده‌ی سرانگشتی: اگر مقدار از بیرون پاس داده شده، prop است؛ اگر خود Component آن را بین Renderها به یاد می‌آورد و عوضش می‌کند، State است؛ اگر از هر کدام قابل محاسبه است، هیچ‌کدام نیست — حین Render حسابش کنید.
+
+</Answer>
+</QA>
+
+<QA q="چرا لیست‌ها key لازم دارند؟ چرا index، key بدی است؟" level="junior" n={6}>
+<Answer>
+
+keyها به React می‌گویند بین Renderها کدام آیتم کدام است، تا بتواند DOM Nodeها را جابه‌جا، اضافه و حذف کند و State هر آیتم را به آیتم درست وصل نگه دارد. index با اضافه، حذف یا جابه‌جا شدن آیتم‌ها عوض می‌شود، پس State (متن input، Checkbox، فوکوس) روی آیتم اشتباه می‌افتد و React به‌جای جابه‌جا کردن ردیف‌ها همه را به‌روز می‌کند. از یک id پایدار و یکتا از داده استفاده کنید. index فقط برای لیست‌های ثابت که هیچ‌وقت جابه‌جا نمی‌شوند مشکلی ندارد. [لیست و key](/react/fundamentals) را ببینید.
+
+</Answer>
+</QA>
+
+<QA q="Virtual DOM چیست و آیا دلیل سریع بودن React است؟" level="mid" n={7}>
+<Answer>
+
+درخت React Elementها (و درخت Fiber که از آن ساخته می‌شود) که React بین Renderها مقایسه می‌کند تا کمترین تغییرات DOM را حساب کند. خودبه‌خود «سریع‌تر از DOM» نیست: کار اضافه می‌کند. ارزشش این است که کد Declarative می‌نویسید و React نوشتن در DOM را برایتان دسته‌بندی و کمینه می‌کند؛ که به اندازه‌ی کافی سریع و خیلی ساده‌تر است. Performance همچنان به این بستگی دارد که چقدر Render می‌کنید. [Virtual DOM](/react/rendering) را ببینید.
+
+</Answer>
+</QA>
+
+<QA q="وقتی setState را صدا می‌زنید چه اتفاقی می‌افتد؟" level="mid" n={8}>
+<Answer>
+
+React به‌روزرسانی را در صف همان Hook می‌گذارد و یک Render زمان‌بندی می‌کند؛ متغیر را فوراً عوض نمی‌کند (Render فعلی Snapshot خودش را نگه می‌دارد). به‌روزرسانی‌های یک رویداد در یک Render **دسته‌بندی (Batch)** می‌شوند. حین Render، React کامپوننت را صدا می‌زند، صف را پردازش می‌کند تا State جدید را بگیرد، Elementهای برگشتی را با قبلی‌ها Reconcile می‌کند، بعد تغییرات DOM را Commit می‌کند، Layout Effectها را اجرا می‌کند، اجازه می‌دهد مرورگر Paint کند و Effectها را اجرا می‌کند. اگر State جدید طبق `Object.is` با قبلی برابر باشد، React می‌تواند Render را رها کند (Bail out).
+
+</Answer>
+<FollowUp>
+
+چرا `console.log(count)` درست بعد از `setCount(count + 1)` مقدار قدیمی را چاپ می‌کند؟ State برای هر Render یک Snapshot است؛ مقدار جدید فقط در Render بعدی دیده می‌شود.
+
+</FollowUp>
+</QA>
+
+<QA q="چرا باید از شکل Updater Function در setState استفاده کرد؟" level="junior" n={9}>
+<Answer>
+
+`setCount(count + 1)` از `count` موجود در Snapshot همین Render استفاده می‌کند، پس سه بار صدا زدنش در یک Handler یک واحد اضافه می‌کند، نه سه. `setCount(c => c + 1)` تابعی را در صف می‌گذارد که آخرین State در انتظار را می‌گیرد، پس سه فراخوانی سه واحد اضافه می‌کنند. هر وقت State بعدی به قبلی وابسته است از Updater استفاده کنید، مخصوصاً در کد Async و در Effectها که State را هم از لیست Dependency حذف می‌کند.
+
+</Answer>
+</QA>
+
+<QA q="StrictMode چه کار می‌کند؟" level="mid" n={10}>
+<Answer>
+
+یک پوسته‌ی مخصوص حالت توسعه که به پیدا کردن باگ کمک می‌کند: Componentها را دو بار Render می‌کند تا Render ناخالص را نشان دهد، Effectها را setup ← Cleanup ← setup اجرا می‌کند تا Cleanupهای جاافتاده را نشان دهد، Ref Callbackها را دو بار صدا می‌زند و درباره‌ی APIهای منسوخ هشدار می‌دهد. در Production هیچ چیز عوض نمی‌شود. Logهای دوتایی در حالت توسعه طبیعی‌اند.
+
+</Answer>
+</QA>
+
+## Hookها و State
+
+<QA q="قانون‌های Hookها چیست و چرا وجود دارند؟" level="junior" n={11}>
+<Answer>
+
+Hookها را فقط در سطح بالای Function Componentها یا Custom Hookها صدا بزنید — هیچ‌وقت داخل شرط، حلقه، تابع تودرتو یا بعد از return زودهنگام. React، State مربوط به Hookهای هر Component را در یک لیست نگه می‌دارد و فراخوانی‌ها را **بر اساس ترتیب** با آیتم‌ها جور می‌کند؛ جا افتادن یک فراخوانی همه‌ی Hookهای بعدی را به خانه‌ی اشتباه می‌برد. `use` تنها Hookی است که می‌شود شرطی صدایش زد. [قانون‌های Hookها](/react/hooks) را ببینید.
+
+</Answer>
+</QA>
+
+<QA q="useState یا useReducer — کی کدام را انتخاب می‌کنید؟" level="mid" n={12}>
+<Answer>
+
+`useState` برای مقدارهای ساده و مستقل. `useReducer` وقتی چند مقدار با هم عوض می‌شوند، انواع زیادی به‌روزرسانی هست یا State بعدی به منطق پیچیده بستگی دارد: همه‌ی تغییرات در یک تابع خالص و قابل تست هستند و Handlerها فقط اتفاقی را که افتاده `dispatch` می‌کنند. `dispatch` پایدار است که برای پاس دادنش از طریق Context کمک می‌کند.
+
+</Answer>
+</QA>
+
+<QA q="useRef برای چیست و چه فرقی با State دارد؟" level="junior" n={13}>
+<Answer>
+
+`useRef` یک Object تغییرپذیر `{ current }` برمی‌گرداند که بین Renderها باقی می‌ماند. تغییر `ref.current` باعث Re-render **نمی‌شود**. برای DOM Nodeها، id تایمرها، مقدار قبلی یا هر داده‌ای که UI نمایشش نمی‌دهد از آن استفاده کنید. اگر مقدار روی صفحه نمایش داده می‌شود، باید State باشد. Refها را حین Render نخوانید و ننویسید (جز مقداردهی تنبل)، فقط در Handlerها و Effectها.
+
+</Answer>
+</QA>
+
+<QA q="Custom Hook چیست؟ آیا دو Component که از آن استفاده می‌کنند State مشترک دارند؟" level="junior" n={14}>
+<Answer>
+
+تابعی که اسمش با `use` شروع می‌شود و Hookهای دیگر را صدا می‌زند؛ برای استفاده‌ی دوباره از منطق دارای State (`useOnlineStatus`، `useDebounce`). هر Componentی که صدایش بزند State **مستقل خودش** را می‌گیرد: Hookها منطق را به اشتراک می‌گذارند، نه داده را. برای اشتراک داده، State را بالا ببرید یا از Context یا یک Store استفاده کنید.
+
+</Answer>
+</QA>
+
+<QA q="Context چطور کار می‌کند و هزینه‌ی Performanceش چیست؟" level="mid" n={15}>
+<Answer>
+
+`createContext` یک کانال می‌سازد؛ یک Provider (`<Ctx value={…}>`) مقداری را به زیردرخت می‌دهد؛ `useContext(Ctx)` یا `use(Ctx)` مقدار نزدیک‌ترین Provider را می‌خواند. Prop Drilling را حل می‌کند. هر مصرف‌کننده با عوض شدن مقدار (طبق `Object.is`) Re-render می‌شود، حتی اگر فقط از بخشی از آن استفاده کند، و `memo` جلویش را نمی‌گیرد. با Memoize کردن مقدار، جدا کردن Contextها (State از Dispatch) یا استفاده از یک Store با Selector برای داده‌ی پرتغییر کمش کنید.
+
+</Answer>
+</QA>
+
+<QA q="«بالا بردن State» (Lifting State Up) یعنی چه؟" level="junior" n={16}>
+<Answer>
+
+بردن State به نزدیک‌ترین والد مشترک Componentهایی که لازمش دارند و پاس دادن مقدار و یک Setter به‌عنوان props به پایین. والد تنها منبع حقیقت می‌شود و فرزندان Controlled می‌شوند. اولین ابزار برای اشتراک State است؛ فقط وقتی سراغ Context یا Store بروید که بالا بردن باعث Prop Drilling عمیق یا Re-renderهای گسترده شود.
+
+</Answer>
+</QA>
+
+<QA q="State مشتق‌شده چیست و چرا نباید ذخیره‌اش کرد؟" level="mid" n={17}>
+<Answer>
+
+مقداری که از props یا State دیگر قابل محاسبه است (لیست فیلترشده، جمع کل، `isValid`). ذخیره‌اش دو منبع حقیقت می‌سازد که می‌توانند با هم نخوانند و معمولاً یک Effect برای «همگام‌سازی» لازم دارد که Render اضافه و باگ می‌آورد. حین Render حسابش کنید؛ اگر سنگین است از `useMemo` استفاده کنید.
+
+</Answer>
+</QA>
+
+<QA q="Context، Redux/Zustand یا TanStack Query — چطور انتخاب می‌کنید؟" level="mid" n={18}>
+<Answer>
+
+اول داده را دسته‌بندی کنید. **Server State** (هر چیزی که از API می‌آید) ← TanStack Query یا Loaderهای Framework: Cache، حذف درخواست تکراری، دریافت دوباره. **State مشترک سمت Client** که زیاد عوض می‌شود (سبد خرید، State یک ویرایشگر) ← یک Store مثل Zustand یا Redux Toolkit با Selector. **مقدارهای سراسری کم‌تغییر** (Theme، زبان، کاربر فعلی) ← Context. **State محلی UI** ← `useState`. **State قابل اشتراک نما** (فیلترها، صفحه) ← URL. [مدیریت State](/react/state) را ببینید.
+
+</Answer>
+</QA>
+
+<QA q="useSyncExternalStore چطور کار می‌کند و چرا وجود دارد؟" level="senior" n={19}>
+<Answer>
+
+Component را با `subscribe(callback)` به یک Store بیرونی وصل می‌کند و با `getSnapshot()` می‌خواندش (به‌اضافه‌ی `getServerSnapshot` برای SSR). وقتی Snapshot طبق `Object.is` عوض شود React دوباره Render می‌کند. وجود دارد چون یک Subscription دست‌ساز با `useEffect` + `useState` ممکن است حین Render همزمان دچار **Tearing** شود — بخش‌های مختلف UI نسخه‌های متفاوتی از Store را نشان دهند؛ `useSyncExternalStore` خواندن یکدست را تضمین می‌کند. کتابخانه‌های Store در درون از آن استفاده می‌کنند.
+
+</Answer>
+</QA>
+
+<QA q="چطور Componentی پیاده‌سازی می‌کنید که Controlled باشد و Uncontrolled هم کار کند؟" level="mid" n={20}>
+<Answer>
+
+`value`، `defaultValue` و `onChange` بگیرید. یک State داخلی نگه دارید که با `defaultValue` مقداردهی شده؛ اگر `value !== undefined` بود از آن استفاده کنید (Controlled)، وگرنه از State داخلی. همیشه `onChange` را با مقدار بعدی صدا بزنید و State داخلی را فقط در حالت Uncontrolled به‌روز کنید. نگذارید حالت در طول عمر Component عوض شود. [Componentهای قابل کنترل](/react/patterns) را ببینید.
+
+</Answer>
+</QA>
+
+## Rendering و Performance
+
+<QA q="چه چیزی باعث Re-render یک Component می‌شود؟" level="mid" n={21}>
+<Answer>
+
+عوض شدن State خودش، Re-render شدن والدش، یا عوض شدن Contextی که می‌خواند. تغییر props علت جداگانه‌ای نیست: props فقط وقتی عوض می‌شوند که والد Render شده باشد. Re-render والد به‌طور پیش‌فرض همه‌ی فرزندان را Re-render می‌کند، مگر فرزند با props برابر Memoize شده باشد یا فرزندان به شکل یک Element در `children` از بالا پاس داده شده باشند.
+
+</Answer>
+</QA>
+
+<QA q="فاز Render و فاز Commit را توضیح دهید." level="mid" n={22}>
+<Answer>
+
+**فاز Render** کامپوننت‌ها را صدا می‌زند و درخت Element جدید را با قبلی Reconcile می‌کند؛ خالص است، می‌تواند قطع یا تکرار شود (Render همزمان، StrictMode) و به DOM دست نمی‌زند. **فاز Commit** تغییرات DOM را اعمال می‌کند، Refها را وصل می‌کند، Layout Effectها را همگام اجرا می‌کند و بعد از Paint، Effectهای عادی را اجرا می‌کند. قابل قطع نیست، پس کاربر هیچ‌وقت UI نیمه‌به‌روزشده نمی‌بیند. [Rendering](/react/rendering) را ببینید.
+
+</Answer>
+</QA>
+
+<QA q="Reconciliation چیست و از چه قاعده‌هایی استفاده می‌کند؟" level="mid" n={23}>
+<Answer>
+
+مرحله‌ی مقایسه (Diffing) که تعیین می‌کند بین دو درخت Element چه چیزی عوض شده. قاعده‌های O(n) در React: Elementهای **با نوع متفاوت** درخت‌های متفاوت می‌سازند (زیردرخت قدیمی نابود و State از دست می‌رود)؛ Elementهای **هم‌نوع** در یک جایگاه درجا به‌روز می‌شوند (State حفظ می‌شود)؛ **keyها** فرزندان یک لیست را بین Renderها شناسایی می‌کنند.
+
+</Answer>
+<Deep>
+
+برای همین Render کردن `<Input />` در یک شاخه و `<div><Input /></div>` در شاخه‌ی دیگر State آن input را از بین می‌برد، و تعریف یک Component داخل Component دیگر آن را در هر Render دوباره Mount می‌کند (هر بار یک نوع جدید).
+
+</Deep>
+</QA>
+
+<QA q="Fiber چیست؟" level="senior" n={24}>
+<Answer>
+
+موتور Reconciliation در React از نسخه‌ی 16 و ساختار داده‌ی پشت آن. هر نمونه‌ی Component و هر Host Element یک Fiber دارد: یک Node با اشاره‌گرهای `child`، `sibling` و `return`، propsش، Stateش (لیست Hookها)، فلگ‌های Effect و Laneها. تبدیل بازگشت (Recursion) به پیمایش یک لیست پیوندی به React اجازه می‌دهد بعد از هر Fiber مکث کند، کار را با Laneها اولویت‌بندی کند و دو درخت (Current و Work-in-progress) نگه دارد تا UI بعدی را در پس‌زمینه بسازد. همین است که Render همزمان را ممکن می‌کند.
+
+</Answer>
+</QA>
+
+<QA q="Batching چیست؟" level="junior" n={25}>
+<Answer>
+
+جمع کردن چند به‌روزرسانی State در یک Render. از React 18 به‌روزرسانی‌ها همه‌جا دسته‌بندی می‌شوند — Event Handlerها، Timeoutها، Promiseها، رویدادهای بومی — نه فقط در Event Handlerهای React. `flushSync` وقتی باید فوراً DOM به‌روزشده را بخوانید یک Render همگام را مجبور می‌کند (به‌ندرت لازم است).
+
+</Answer>
+</QA>
+
+<QA q="memo در برابر useMemo در برابر useCallback؟" level="mid" n={26}>
+<Answer>
+
+`memo(Component)` از Re-render کردن Componentی که propsش به‌طور سطحی برابرند رد می‌شود. `useMemo(fn, deps)` یک مقدار محاسبه‌شده را Cache می‌کند. `useCallback(fn, deps)` هویت یک تابع را Cache می‌کند (همان `useMemo(() => fn, deps)` است). دو تای آخر بیشتر وقتی مهم‌اند که مقدار به یک فرزند Memoizeشده یا آرایه‌ی Dependency برود. اول اندازه بگیرید؛ با React Compiler بیشتر این‌ها خودکار است. [Performance](/react/performance) را ببینید.
+
+</Answer>
+</QA>
+
+<QA q="چرا پیچیدن همه چیز در useMemo/useCallback ممکن است ضرر داشته باشد؟" level="mid" n={27}>
+<Answer>
+
+هر فراخوانی هزینه دارد (ذخیره‌ی مقدارها، مقایسه‌ی Dependencyها در هر Render) و کدی اضافه می‌کند که آرایه‌های Dependencyاش ممکن است غلط شوند و مقدار کهنه بدهند. اگر کسی مقدار Memoizeشده را مقایسه نکند (به یک DOM Element یا فرزند غیر Memoizeشده برود) هیچ سودی ندارد. نقطه‌های داغ اندازه‌گیری‌شده را Memoize کنید، یا بگذارید کامپایلر انجامش دهد.
+
+</Answer>
+</QA>
+
+<QA q="React Compiler چیست؟" level="senior" n={28}>
+<Answer>
+
+یک Babel Plugin در زمان Build (نسخه‌ی پایدار 1.0 از اکتبر ۲۰۲۵) که Componentها و Hookها را تحلیل می‌کند و Memoization ریزدانه برای مقدارها، Callbackها و JSX اضافه می‌کند، با یک Cache مخصوص هر Component (`c` از `react/compiler-runtime`). به قانون‌های React تکیه دارد، از کدی که نمی‌تواند خالص بودنش را ثابت کند رد می‌شود و `"use no memo"` برای بیرون گذاشتن و `compilationMode` برای استفاده‌ی تدریجی دارد. بیشتر `memo`/`useMemo`/`useCallback`های دستی را غیرضروری می‌کند.
+
+</Answer>
+</QA>
+
+<QA q="یک لیست ۱۰٬۰۰۰ آیتمی را چطور بهینه Render می‌کنید؟" level="mid" n={29}>
+<Answer>
+
+Virtualizeش کنید: فقط ردیف‌های داخل محدوده‌ی دید به‌اضافه‌ی یک Overscan را Render کنید، داخل ظرفی که اندازه‌ی کل لیست را دارد (TanStack Virtual، react-window). به ردیف‌ها key پایدار بدهید، ردیف‌ها را با props پایدار Memoize کنید و از کار سنگین برای هر ردیف دوری کنید. برای محتوای طولانی غیرتعاملی، CSS `content-visibility: auto` ممکن است کافی باشد. صفحه‌بندی یا بارگذاری بی‌پایان خود داده را کم می‌کند.
+
+</Answer>
+</QA>
+
+<QA q="یک برنامه‌ی React را چطور Code Split می‌کنید؟" level="junior" n={30}>
+<Answer>
+
+با `lazy(() => import('./Page'))` که داخل `<Suspense fallback>` Render می‌شود: Bundler یک Chunk جدا می‌سازد که در اولین Render دانلود می‌شود. اول بر اساس Routeها تقسیم کنید، بعد ویجت‌های سنگینی که اول پنهان‌اند. برای پنهان کردن تأخیر، Chunkها را موقع Hover یا بیکاری از قبل بارگذاری کنید. Componentهای lazy را در سطح Module تعریف کنید.
+
+</Answer>
+</QA>
+
+## Effectها و داده
+
+<QA q="useEffect برای چیست؟ مثال‌هایی بزنید که ابزار اشتباهی است." level="mid" n={31}>
+<Answer>
+
+برای همگام نگه داشتن Component با یک سیستم بیرونی تا وقتی روی صفحه است: Subscriptionها، اتصال‌ها، تایمرها، ویجت‌های غیر React، APIهای دستوری DOM. ابزار اشتباه برای: مقدار مشتق‌شده (حین Render حساب کنید)، ریست State با عوض شدن prop (`key`)، واکنش به کار کاربر (Event Handler)، خبر دادن به والد (Callback را در Handler صدا بزنید)، Storeهای بیرونی (`useSyncExternalStore`) و گرفتن داده در برنامه‌های واقعی (کتابخانه‌های داده). [Effectها](/react/effects) را ببینید.
+
+</Answer>
+</QA>
+
+<QA q="Cleanup یک Effect کی اجرا می‌شود؟" level="junior" n={32}>
+<Answer>
+
+قبل از اجرای دوباره‌ی Effect چون یک Dependency عوض شده (با مقدارهای Render قبلی)، و وقتی Component، Unmount می‌شود. در حالت توسعه StrictMode هم موقع Mount یک دور اضافه‌ی setup ← Cleanup اجرا می‌کند تا درستی Cleanupها را چک کند.
+
+</Answer>
+</QA>
+
+<QA q="Stale Closure در Hookها چیست؟ یک مثال و راه‌حلش را نشان دهید." level="mid" n={33}>
+<Answer>
+
+تابعی که مقدارها را از یک Render قدیمی نگه داشته. مورد کلاسیک:
+
+```jsx
+useEffect(() => {
+  const id = setInterval(() => setCount(count + 1), 1000) // اینجا count همیشه 0 است
+  return () => clearInterval(id)
+}, []) // count در deps نیست
+```
+
+شمارنده به ۱ می‌رسد و می‌ایستد. راه‌حل: Updater یعنی `setCount(c => c + 1)` (Dependency لازم ندارد)، اضافه کردن Dependency، یا برای مقدارهایی که نباید Effect را از نو شروع کنند، `useEffectEvent`.
+
+</Answer>
+</QA>
+
+<QA q="useEffect در برابر useLayoutEffect؟" level="mid" n={34}>
+<Answer>
+
+API یکسان، زمان متفاوت. `useLayoutEffect` بعد از تغییرات DOM و قبل از Paint مرورگر به‌صورت همگام اجرا می‌شود، پس می‌توانید Layout را اندازه بگیرید و بدون Flicker قابل دیدن اصلاح کنید (جای Tooltip، برگرداندن Scroll) — ولی جلوی Paint را می‌گیرد و روی سرور کاری نمی‌کند. `useEffect` بعد از Paint اجرا می‌شود و پیش‌فرض است.
+
+</Answer>
+</QA>
+
+<QA q="هنگام گرفتن داده در Effect چطور از Race Condition جلوگیری می‌کنید؟" level="mid" n={35}>
+<Answer>
+
+Cleanup را طوری بنویسید که درخواست را بی‌اعتبار کند: یک فلگ `ignore` که قبل از `setState` چک می‌شود، یا یک `AbortController` که `signal`ش به `fetch` داده شده و در Cleanup، Abort می‌شود (`AbortError` را نادیده بگیرید). چون Cleanup با هر تغییر Query اجرا می‌شود، فقط آخرین پاسخ State را عوض می‌کند. کتابخانه‌هایی مثل TanStack Query این را برایتان انجام می‌دهند.
+
+</Answer>
+</QA>
+
+<QA q="useEffectEvent چیست؟" level="senior" n={36}>
+<Answer>
+
+یک Hook در React 19.2 که یک «Effect Event» می‌سازد: تابعی که همیشه آخرین props و State را می‌بیند ولی Dependency نیست، پس خواندن مقداری داخلش Effect را دوباره اجرا نمی‌کند. مثال: چت فقط با عوض شدن `roomId` دوباره وصل شود، ولی Notification با `theme` فعلی نمایش داده شود. فقط از Effectها صدایش بزنید و به Componentهای دیگر پاسش ندهید.
+
+</Answer>
+</QA>
+
+<QA q="چرا تیم‌ها از گرفتن داده در useEffect دوری می‌کنند؟" level="mid" n={37}>
+<Answer>
+
+باید Race Condition، Cache، حذف درخواست تکراری، تلاش دوباره، دریافت دوباره و وضعیت‌های Loading/خطا را دستی حل کنید؛ Fetch فقط بعد از Render و Paint شروع می‌شود که Waterfall شبکه می‌سازد (والد داده می‌گیرد، بعد فرزند Fetchش را شروع می‌کند)؛ و روی سرور اجرا نمی‌شود. Loaderهای Framework، Server Componentها، TanStack Query یا `use` با یک Promise کش‌شده زودتر شروع می‌کنند و این مشکل‌ها را یک بار برای همیشه حل می‌کنند.
+
+</Answer>
+</QA>
+
+## React 19 و React مدرن
+
+<QA q="Actionها در React 19 چیستند؟" level="mid" n={38}>
+<Answer>
+
+تابع‌هایی — معمولاً async — که داخل یک Transition اجرا می‌شوند. React آن‌ها را دنبال می‌کند: `isPending` تا تمام شدن کار و به‌روزرسانی‌هایش `true` می‌ماند، خطاها به Error Boundary می‌روند و به‌روزرسانی‌های خوش‌بینانه با تمام شدنشان برگردانده می‌شوند. `<form action={fn}>` تابع `fn` را به‌عنوان Action با `FormData` اجرا می‌کند و بعد از موفقیت فرم را ریست می‌کند. [React 19](/react/react-19) را ببینید.
+
+</Answer>
+</QA>
+
+<QA q="useActionState، useFormStatus و useOptimistic را توضیح دهید." level="mid" n={39}>
+<Answer>
+
+`useActionState(action, initial)` مقدار `[state, dispatch, isPending]` را برمی‌گرداند؛ action ورودی `(prevState, payload)` می‌گیرد و مقدار برگشتی‌اش State می‌شود، پس موفقیت و خطا فقط State هستند. `useFormStatus()` (از `react-dom`) به Componentی داخل یک فرم اجازه می‌دهد `pending`، `data`، `method` و `action` همان فرم را بخواند. `useOptimistic(state, update)` حین اجرای یک Action مقدار موقت نشان می‌دهد و با تمام شدنش خودکار به State واقعی برمی‌گردد، که برگشت در صورت شکست را مجانی می‌دهد.
+
+</Answer>
+</QA>
+
+<QA q="API به نام use چه کار می‌کند و چه فرقی با بقیه‌ی Hookها دارد؟" level="mid" n={40}>
+<Answer>
+
+`use(resource)` یک Promise را می‌خواند (تا Resolve شدن Suspend می‌کند و Reject را به Error Boundary پرتاب می‌کند) یا یک Context را. برخلاف بقیه‌ی Hookها می‌شود آن را در شرط و حلقه صدا زد. Promise باید بیرون از Renderی که آن را می‌خواند ساخته شود — در والد، یک Cache یا یک Server Component — وگرنه هر Render یک Promise تازه‌ی در انتظار می‌سازد و Component برای همیشه Suspend می‌ماند.
+
+</Answer>
+</QA>
+
+<QA q="در React 19 درباره‌ی Refها چه چیزی عوض شد؟" level="junior" n={41}>
+<Answer>
+
+`ref` برای Function Componentها یک prop معمولی است، پس `forwardRef` دیگر لازم نیست. Ref Callbackها می‌توانند تابع Cleanup برگردانند. `<Context>` مستقیم به‌عنوان Provider کار می‌کند. در 19.3، `<Fragment ref>` نمونه‌ای می‌دهد که می‌تواند فرزندان Fragment را فوکوس، Observe و به رویدادهایشان گوش کند.
+
+</Answer>
+</QA>
+
+<QA q="Render همزمان چیست و چطور از آن استفاده می‌کنید؟" level="senior" n={42}>
+<Answer>
+
+React می‌تواند یک Transition را در برش‌های قابل قطع Render کند، جا را به به‌روزرسانی‌های فوری مثل تایپ بدهد و کار کهنه را دور بریزد و فقط درخت‌های کامل را Commit کند. با `startTransition`/`useTransition` (پیچیدن به‌روزرسانی State) و `useDeferredValue` (عقب انداختن یک مقدار دریافتی) و از طریق Suspense فعالش می‌کنید. [Concurrent React](/react/advanced) را ببینید.
+
+</Answer>
+</QA>
+
+<QA q="Server Componentها چیستند؟ چه فرقی با SSR دارند؟" level="senior" n={43}>
+<Answer>
+
+Componentهایی که فقط روی سرور اجرا می‌شوند، می‌توانند async باشند و مستقیم به داده دسترسی داشته باشند و هیچ‌وقت Hydrate نمی‌شوند، پس کدشان به مرورگر فرستاده نمی‌شود. به RSC Payload Render می‌شوند که به Client Componentها (`'use client'`) ارجاع می‌دهد و مرورگر آن‌ها را بارگذاری و Hydrate می‌کند. SSR کامپوننت‌ها را برای بارگذاری اول به HTML تبدیل می‌کند، ولی هر Componentی که SSR شود همچنان JavaScriptش را می‌فرستد و Hydrate می‌شود. RSC تعیین می‌کند چه چیزی کجا اجرا شود؛ SSR نتیجه را به HTML تبدیل می‌کند.
+
+</Answer>
+</QA>
+
+<QA q="Hydration چیست و علت Mismatch چیست؟" level="mid" n={44}>
+<Answer>
+
+وصل شدن React به HTMLی که سرور Render کرده: همان درخت را در Client، Render می‌کند، از DOM موجود استفاده می‌کند و Listenerها را وصل می‌کند. Mismatch وقتی پیش می‌آید که اولین Render سمت Client با HTML سرور فرق کند — تاریخ، مقدار تصادفی، خواندن `window`/`localStorage` حین Render، تودرتویی نامعتبر HTML. اول همان خروجی را Render کنید و در یک Effect به‌روزش کنید؛ برای یک متن اجتناب‌ناپذیر از `suppressHydrationWarning` استفاده کنید.
+
+</Answer>
+</QA>
+
+## الگوها، معماری و سناریوها
+
+<QA q="Error Boundaryها چیستند و چه چیزهایی را نمی‌گیرند؟" level="mid" n={45}>
+<Answer>
+
+Class Componentهایی که `static getDerivedStateFromError` (برای Render کردن fallback) و در صورت نیاز `componentDidCatch` (برای Log) را پیاده می‌کنند. خطاهای حین Render، Lifecycle Methodها و Effectهای زیردرختشان را می‌گیرند. خطاهای Event Handler، خطاهای Async بیرون از React (مگر اینکه در State بگذارید و حین Render پرتاب کنید)، خطاهای SSR یا خطای خودشان را نمی‌گیرند. دور بخش‌های مستقل بگذاریدشان و با `key` ریستشان کنید. [Error Boundaryها](/react/patterns) را ببینید.
+
+</Answer>
+</QA>
+
+<QA q="کی و چرا از Portal استفاده می‌کنید؟" level="mid" n={46}>
+<Answer>
+
+برای UIی که باید از نظر ظاهری از ظرفش فرار کند — Modal، Tooltip، Toast — وقتی `overflow: hidden`، `transform` یا Stacking Context یک والد آن را می‌بُرد. `createPortal(children, document.body)` در DOM Node دیگری Render می‌کند ولی در درخت React می‌ماند، پس Context کار می‌کند و رویدادها به اجداد React می‌رسند. برای Dialogها، `<dialog>` بومی با `showModal()` (Top Layer و مدیریت فوکوس) اغلب بهتر است.
+
+</Answer>
+</QA>
+
+<QA q="احراز هویت را در یک برنامه‌ی React چطور ساختار می‌دهید و Tokenها را کجا ذخیره می‌کنید؟" level="senior" n={47}>
+<Answer>
+
+یک Auth Provider کاربر فعلی را بارگذاری می‌کند و از طریق Context در اختیار می‌گذارد؛ محافظ‌های Route کاربر واردنشده را هدایت می‌کنند؛ سرور هر درخواست را چک می‌کند. برای Tokenهایی مثل JWT، امن‌ترین پیش‌فرض در یک برنامه‌ی مرورگری یک **Cookie از نوع httpOnly، Secure و SameSite** است که سرور تنظیمش می‌کند، تا JavaScript (و در نتیجه XSS) نتواند بخواندش، همراه با محافظت در برابر CSRF. نگه داشتن یک Access Token کوتاه‌عمر در حافظه همراه با Refresh Token در یک Cookie از نوع httpOnly یک جایگزین رایج است؛ `localStorage` را هر Script تزریق‌شده‌ای می‌تواند بخواند. جزئیات در [معماری Auth](/architecture/auth-security-performance).
+
+</Answer>
+<FollowUp>
+
+آیا یک محافظ Route سمت Client کافی است؟ نه — فقط تجربه‌ی کاربری است. هر کسی می‌تواند API را مستقیم صدا بزند، پس هر Endpoint و Server Function باید Session را چک کند.
+
+</FollowUp>
+</QA>
+
+<QA q="یک صفحه موقع تایپ در جعبه‌ی جستجو کند است. چطور عیب‌یابی و درستش می‌کنید؟" level="senior" n={48}>
+<Answer>
+
+با React DevTools، Profile می‌گیرم («why each component rendered» را ضبط می‌کنم). یافته‌ها و راه‌حل‌های معمول: State جستجو خیلی بالاست و کل صفحه را Re-render می‌کند ← پایین ببرمش یا بقیه را به‌عنوان `children` پاس دهم؛ لیست نتیجه سنگین است ← Memoizeش کنم و با `useDeferredValue` یا یک Transition Renderش کنم تا تایپ فوری بماند؛ لیست خیلی بزرگ است ← Virtualizeش کنم؛ هر کلید یک درخواست می‌فرستد ← درخواست را Debounce کنم (نه Render را) و از یک کتابخانه‌ی داده برای Cache و لغو استفاده کنم. بعد از هر تغییر دوباره اندازه می‌گیرم.
+
+</Answer>
+</QA>
+
+<QA q="Code Review: این Component چه اشکالی دارد؟" level="mid" n={49}>
+<Answer>
+
+```jsx
+function UserList({ users }) {
+  const [filtered, setFiltered] = useState(users)
+  const [query, setQuery] = useState('')
+  useEffect(() => {
+    setFiltered(users.filter((u) => u.name.includes(query)))
+  }, [query])
+  return (
+    <>
+      <input onChange={(e) => setQuery(e.target.value)} />
+      {filtered.map((u, i) => <Row key={i} user={u} onSelect={() => select(u)} />)}
+    </>
+  )
+}
+```
+
+1. `filtered` یک **State مشتق‌شده** است که با یک Effect همگام می‌شود: در هر کلید دو بار Render می‌شود و تغییرات `users` را نادیده می‌گیرد (Dependency جاافتاده). `const filtered = users.filter(…)` را حین Render حساب کنید (اگر سنگین است `useMemo`).
+2. **index به‌عنوان key**: فیلتر کردن indexها را عوض می‌کند، پس State ردیف‌ها به کاربرهای اشتباه می‌رود. از `u.id` استفاده کنید.
+3. input، Uncontrolled است ولی مقدارش در State است؛ برای یکدستی Controlledش کنید (`value={query}`).
+4. اگر `Row` Memoize شده باشد، `onSelect` درجا خرابش می‌کند؛ `onSelect={select}` را پاس دهید و بگذارید `Row` آن را با کاربر خودش صدا بزند، یا به کامپایلر تکیه کنید.
+
+</Answer>
+</QA>
+
+<QA q="یک Component قابل استفاده‌ی دوباره و دسترس‌پذیر Tabs (یا Select) را چطور طراحی می‌کنید؟" level="senior" n={50}>
+<Answer>
+
+از **Compound Componentها** (`Tabs`، `Tabs.List`، `Tabs.Tab`، `Tabs.Panel`) استفاده می‌کنم که State را از طریق Context به اشتراک می‌گذارند، با یک Hook محافظ برای استفاده‌ی اشتباه. آن را **قابل کنترل** می‌کنم (`value`/`defaultValue`/`onValueChange`). الگوی WAI-ARIA را پیاده می‌کنم: `role="tablist"`/`tab`/`tabpanel`، `aria-selected`، `aria-controls`، `tabIndex` چرخشی و ناوبری با کلیدهای جهت‌دار، و idها را با `useId` می‌سازم. اجازه می‌دهم کاربر Markup و کلاس‌های خودش را پاس دهد و یک Ref در اختیار می‌گذارم (در React 19 یک prop است). با کیبورد و Screen Reader تست می‌کنم. یا روی یک کتابخانه‌ی Headless (Radix، React Aria) می‌سازم و استایلش می‌دهم.
+
+</Answer>
+</QA>
+
+## جمع‌بندی
+
+<Recap>
+
+- با تعریف یک‌جمله‌ای شروع کنید، بعد چطور کار می‌کند، یک مثال و یک بده‌بستان.
+- مبانی: `UI = f(state)`، Element در برابر Component، props تغییرناپذیر، State به شکل Snapshot، keyهای پایدار.
+- Hookها: ذخیره بر اساس ترتیب، `useReducer` برای تغییرات پیچیده، Refها Re-render نمی‌کنند، Custom Hookها منطق را به اشتراک می‌گذارند نه State را.
+- State: دسته‌بندی‌اش کنید — محلی، مشترک سمت Client، سرور، URL، مشتق‌شده — و برای هر نوع ابزار مناسبش را انتخاب کنید.
+- Rendering: Render در برابر Commit، علت‌های Re-render، قاعده‌های Reconciliation، Fiber، Batching.
+- Performance: اول اندازه بگیرید، ساختار را درست کنید، نقطه‌های داغ را Memoize کنید یا React Compiler را به کار بگیرید، Virtualize کنید، کد را تقسیم کنید.
+- Effectها با سیستم‌های بیرونی همگام می‌کنند؛ مراقب Stale Closure، Cleanup و Race Condition باشید.
+- React 19: Actionها، `useActionState`، `useFormStatus`، `useOptimistic`، `use`، ref به‌عنوان prop.
+- پیشرفته: Transitionها، Suspense، Hydration، Streaming، Server Componentها و Server Functionها.
+- الگوها: Componentهای Compound و قابل کنترل، Error Boundaryها، Portalها و محافظ‌های احراز هویت که سرور پشتیبانشان است.
+
+</Recap>
