@@ -51,4 +51,14 @@ Full design in `PLAN.md` (read only if needed). Writing standard: skill `handboo
   Live demos can also import `zustand/shallow`.
   Hidden Browser pane: diagrams stay on "drawing…" too; validate with `mermaid.render` using the page's own
   `/deps/mermaid.js?v=…` URL (from performance entries) — importing it without `?v=` breaks Vite's dep cache.
-  Next: react/effects.
+  ✅ react/effects (fa+en, 9 live demos; console output checked in the browser).
+  Slugs: rehype-slug strips ZWNJ, so fa anchors use «میکند» not «می‌کند» (`node .tmp/slug.mjs '<heading>'`).
+  Hidden pane: live-demo consoles are mirrored into the parent page text (`innerText.split('
+Console
+')`).
+  Next: react/performance.
+- JWT (user request 2026-10-10): cover JWT in the post-React parts — full treatment in
+  architecture/auth-security-performance (structure header.payload.signature, base64url, signing HS256 vs RS256,
+  claims exp/iat/nbf/aud/iss, verification, access + refresh tokens and rotation, where to store: httpOnly
+  cookie vs memory vs localStorage and XSS/CSRF trade-offs, revocation, JWT vs sessions, `alg: none` / weak secret
+  attacks, decoding demo) and short mentions/links from patterns, interview and cheatsheet chapters.

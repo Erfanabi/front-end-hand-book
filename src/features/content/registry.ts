@@ -411,6 +411,10 @@ const descriptions: Record<string, Localized> = {
     fa: 'انواع State و جای هر کدام، ساختار دادن به State، Lifting State Up، Reducer + Context، Zustand (Selectorها، useShallow، Middleware)، TanStack Query (staleTime، gcTime، Mutation، Optimistic) و URL State.',
     en: 'Kinds of state and where each lives, structuring state, lifting state up, reducer + context, Zustand (selectors, useShallow, middleware), TanStack Query (staleTime, gcTime, mutations, optimistic updates) and URL state.',
   },
+  'react/effects': {
+    fa: 'Effect برای همگام‌سازی با سیستم‌های بیرونی، useEffect و سه شکل Dependency، Cleanup، اجرای دوباره در StrictMode، useLayoutEffect و useInsertionEffect، Stale Closure، useEffectEvent، Race Condition در Fetch و جاهایی که Effect لازم نیست.',
+    en: "Effects as synchronization with external systems, useEffect and its three dependency forms, cleanup, the StrictMode double run, useLayoutEffect and useInsertionEffect, stale closures, useEffectEvent, fetch race conditions, and when you don't need an Effect.",
+  },
 }
 
 for (const part of parts) {
