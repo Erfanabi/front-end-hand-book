@@ -2,14 +2,18 @@
   "name": "frontend-interview-handbook",
   "private": true,
   "version": "1.0.0",
+  "author": "Sina Baradaran <sinabaradaran01@gmail.com> (https://github.com/sina-bre)",
+  "license": "UNLICENSED",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "paraglide-js compile --silent --emit-ts-declarations && tsc -b && vite build",
+    "build": "node scripts/verify.ts && paraglide-js compile --silent --emit-ts-declarations && tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b",
     "lint": "eslint .",
-    "check:content": "node scripts/check-content.ts"
+    "check:content": "node scripts/check-content.ts",
+    "sign": "node scripts/sign.ts",
+    "verify": "node scripts/verify.ts"
   },
   "dependencies": {
     "@codemirror/lang-css": "^6.3.1",

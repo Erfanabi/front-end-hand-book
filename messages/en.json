@@ -82,6 +82,8 @@
   "el_restart": "Restart",
   "flex_items": "Items",
   "footer_note": "Built for learning and interview preparation. Run the code, change it, and watch what happens.",
+  "footer_copyright": "© 2026 Sina Baradaran. All rights reserved.",
+  "footer_signed": "Signed by the author",
   "nav_overview": "Overview",
   "nav_parts": "Handbook",
   "nav_command": "Search the handbook…",

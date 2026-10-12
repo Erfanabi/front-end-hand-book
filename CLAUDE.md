@@ -14,6 +14,9 @@ Full design in `PLAN.md` (read only if needed). Writing standard: skill `handboo
 
 ## Git
 - Commit and push to `origin main` after every finished chapter/fix (user request). Pushing deploys to GitHub Pages.
+- **Run `pnpm sign` right before every commit.** The build (and the deploy) runs `pnpm verify` and fails if any
+  file under src/, messages/, build/, scripts/ or LICENSE/README/index.html/package.json changed since signing.
+  Private key: `~/.handbook-signing/ed25519.pem` (never commit it). Author: Sina Baradaran, all rights reserved.
 
 ## Adding a chapter
 1. Slug already listed in `src/features/content/registry.ts` (`parts[].chapters`).

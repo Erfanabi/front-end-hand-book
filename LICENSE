@@ -1,0 +1,17 @@
+Copyright (c) 2026 Sina Baradaran <sinabaradaran01@gmail.com>
+All rights reserved.
+
+This repository, the Frontend Interview Handbook and all of its content
+(text, code examples, diagrams, illustrations and design) are the work of
+Sina Baradaran.
+
+You may read the handbook and run its examples for your own personal
+learning. You may NOT copy, republish, redistribute, sell, translate, or
+create derivative works from any part of it, in whole or in substantial part,
+without prior written permission from the author.
+
+Access to the source code (for example on GitHub) does not grant any license
+to reuse it. Authorship is proven by the Ed25519 signature in
+public/signature.json; see README.md → "Authorship".
+
+THE CONTENT IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
